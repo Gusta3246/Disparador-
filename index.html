@@ -362,9 +362,6 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
           <label class="f" for="aiAsk">O que ajustar (opcional)
             <input type="text" id="aiAsk" placeholder="Ex.: deixar mais curto e mais simpático" maxlength="200">
           </label>
-          <label class="f" for="aiCode">Senha de acesso (a que você definiu na Vercel)
-            <input type="password" id="aiCode" autocomplete="off">
-          </label>
           <div class="actions">
             <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
             <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
@@ -453,6 +450,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
           <div class="mono num" id="leadWho"></div>
           <div class="actions">
             <a class="btn primary big" id="leadOpen" href="#" target="_blank" rel="noopener" aria-disabled="true">Abrir conversa no WhatsApp</a>
+            <button class="btn" id="leadAi" type="button">Reescrever com IA</button>
             <button class="btn" id="leadCopy" type="button">Copiar mensagem</button>
             <button class="btn" id="leadReroll" type="button">Gerar outra versão</button>
           </div>
@@ -683,6 +681,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         '<div class="bubble">' + esc(msg(nx)) + '</div>' +
         '<div class="cd" id="cd"><span id="cdText"></span><span class="time" id="cdTime"></span></div>' +
         '<div class="actions"><a class="btn primary big" data-open="' + nx.i + '" href="' + esc(link(nx)) + '" target="_blank" rel="noopener">Abrir conversa e marcar como enviada</a>' +
+        '<button class="btn" type="button" data-ai="' + nx.i + '">Reescrever com IA</button>' +
         '<button class="btn" type="button" data-skip="' + nx.i + '">Pular</button>' +
         '<button class="btn" type="button" id="release" data-release hidden>Liberar agora</button></div></div>';
     } else {
@@ -805,6 +804,8 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       if (tickId) { clearInterval(tickId); tickId = null; }
       S.until = 0; applyCool(); return;
     }
+    var ai = e.target.closest('[data-ai]');
+    if (ai) { aiRewriteItem(ai); return; }
     var sk = e.target.closest('[data-skip]');
     if (sk) { S.status[+sk.dataset.skip] = 'pulado'; renderQueue(); return; }
     var tg = e.target.closest('[data-toggle]');
@@ -825,13 +826,12 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
   function variantsOf(t) { return t.split(/^[ \t]*---[ \t]*$/m).map(function (s) { return s.trim(); }).filter(Boolean); }
   function aiSay(t) { $('#aiNote').textContent = t; }
   /* A chave do Gemini fica só no servidor (variável de ambiente da Vercel). Aqui o navegador chama /api/gerar. */
-  function aiCall(n, tone, ex, src, ask) {
-    var code = $('#aiCode').value;
-    try { localStorage.setItem('disparador-aicode', code); } catch (e) {}
+  function aiErr(m) { var e = new Error(m); e.status = 1; return e; }
+  function aiPost(payload) {
     var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 60000);
     return fetch('/api/gerar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ n: n, tone: tone, examples: ex, source: src, ask: ask, code: code }), signal: ctl.signal
+      body: JSON.stringify(payload), signal: ctl.signal
     }).then(function (r) {
       clearTimeout(tm);
       return r.json().catch(function () { return {}; }).then(function (j) {
@@ -839,6 +839,37 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         return j.text;
       });
     }, function (e) { clearTimeout(tm); throw e; });
+  }
+  function aiCall(n, tone, ex, src, ask) { return aiPost({ n: n, tone: tone, examples: ex, source: src, ask: ask }); }
+  function aiFail(e) { return e && e.status ? e.message : 'Não consegui falar com o servidor. Confira a conexão e tente de novo.'; }
+
+  /* Reescreve UMA mensagem pronta (a do próximo da fila ou a do lead), mantendo nomes, datas e valores. */
+  function cleanRewrite(t, orig) {
+    t = String(t || '').replace(/```[a-z]*\n?/gi, '').replace(/\*\*/g, '').split(/^[ \t]*---[ \t]*$/m)[0].trim();
+    t = t.replace(/^["“”]+|["“”]+$/g, '').trim();
+    if (t.length < 20 || t.length > orig.length * 1.8 + 80 || /[{}]/.test(t)) return '';
+    var nums = orig.match(/\d+/g) || [];
+    if (nums.some(function (d) { return t.indexOf(d) < 0; })) return '';
+    return t;
+  }
+  function aiRewrite(text) {
+    return aiPost({ mode: 'rewrite', tone: $('#aiTone').value, source: text }).then(function (raw) {
+      var t = cleanRewrite(raw, text);
+      if (!t) throw aiErr('A IA alterou nomes, datas ou valores da mensagem. Tente de novo.');
+      return t;
+    });
+  }
+  function aiRewriteItem(btn) {
+    var i = +btn.dataset.ai, it = items().filter(function (x) { return x.i === i; })[0];
+    if (!it) return;
+    var orig = msg(it);
+    btn.disabled = true; btn.textContent = 'Reescrevendo…';
+    say('Reescrevendo a mensagem de ' + (it.name || fmtPhone(it.phone)) + ' com IA…');
+    aiRewrite(orig).then(function (t) {
+      S.msgs[i] = t; renderQueue(); say('Mensagem reescrita. Confira o texto antes de abrir a conversa.');
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Reescrever com IA'; say(aiFail(e));
+    });
   }
   function amountsIn(texts) {
     var sets = texts.map(function (t) { return (String(t).match(/R\$\s*[\d.,]+/g) || []).map(function (a) { return a.replace(/\s+/g, '').replace(/[.,]+$/, ''); }); });
@@ -878,7 +909,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       $('#aiUndo').hidden = false;
       aiSay(res.ok.length + ' versões novas no fim do texto' + (res.dropped ? ' (' + res.dropped + ' descartadas por erro de formato)' : '') + '. Leia antes de usar.');
     }).catch(function (e) {
-      aiSay(e && e.status ? e.message : 'Não consegui falar com o servidor. Confira a conexão e tente de novo; as versões prontas continuam funcionando.');
+      aiSay(aiFail(e));
     }).then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA'; });
   });
   $('#aiUndo').addEventListener('click', function () {
@@ -887,7 +918,6 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     $('#tpl').dispatchEvent(new Event('input'));
     aiSay('Última geração desfeita.');
   });
-  try { $('#aiCode').value = localStorage.getItem('disparador-aicode') || ''; } catch (e) {}
 
   /* ---------- lead individual ---------- */
   var LK = [['nome', 'Nome'], ['contato', 'Contato'], ['visita', 'Visita (data e hora)'], ['renda', 'Renda mensal'], ['fin', 'Financiamento simulado'], ['sub', 'Subsídio simulado'], ['emp', 'Empreendimento'], ['cidade', 'Cidade de interesse'], ['bairro', 'Bairro de interesse'], ['classif', 'Classificação']];
@@ -976,6 +1006,15 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     var o = $('#leadMsg');
     function fb() { o.focus(); o.select(); leadNote('Selecionei a mensagem. Copie com Ctrl+C.'); }
     try { navigator.clipboard.writeText(o.value).then(function () { leadNote('Mensagem copiada.'); }, fb); } catch (e) { fb(); }
+  });
+  $('#leadAi').addEventListener('click', function () {
+    var o = $('#leadMsg'), btn = this;
+    if (!o.value.trim()) { leadNote('Cole um lead primeiro.'); return; }
+    btn.disabled = true; btn.textContent = 'Reescrevendo…'; leadNote('Reescrevendo com IA…');
+    aiRewrite(o.value).then(function (t) {
+      o.value = t; paintLead(); leadNote('Mensagem reescrita. Confira antes de enviar. "Gerar outra versão" volta ao texto padrão.');
+    }).catch(function (e) { leadNote(aiFail(e)); })
+      .then(function () { btn.disabled = false; btn.textContent = 'Reescrever com IA'; });
   });
   $('#leadOpen').addEventListener('click', function (e) { if (this.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
   $('#modes').addEventListener('click', function (e) {

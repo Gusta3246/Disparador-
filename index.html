@@ -692,6 +692,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         '</strong><span class="mono num">' + esc(fmtPhone(nx.phone)) + '</span></div>' +
         '<div class="bubble">' + esc(msg(nx)) + '</div>' +
         aiStatusHtml(nx.i) +
+        (S.autoMsg ? '<p class="note"><b>' + esc(S.autoMsg) + '</b></p>' : '') +
         '<div class="cd" id="cd"><span id="cdText"></span><span class="time" id="cdTime"></span></div>' +
         '<div class="actions"><a class="btn primary big" data-open="' + nx.i + '" href="' + esc(link(nx)) + '" target="_blank" rel="noopener">Abrir conversa e marcar como enviada</a>' +
         '<button class="btn" type="button" data-ai="' + nx.i + '"' + (aiLoading(nx.i) ? ' disabled' : '') + '>' + (aiLoading(nx.i) ? 'Reescrevendo…' : 'Reescrever com IA') + '</button>' +
@@ -768,6 +769,25 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     applyCool();
   }
 
+  /* Abre a conversa SEMPRE na mesma aba (nome fixo). Reaproveitar uma aba já aberta não é bloqueado pelo
+     navegador, então funciona também quando a abertura é automática (sem clique). */
+  var WA_TAB = 'wa_disparador', AUTO_AI_WAIT_MS = 60000, autoWaitSince = 0;
+  function openChat(i) {
+    var it = items().filter(function (x) { return x.i === i; })[0];
+    if (!it) return false;
+    var w = null;
+    try { w = window.open(link(it), WA_TAB); } catch (e) {}
+    if (!w) {
+      S.autoMsg = 'O navegador bloqueou a abertura da conversa. Clique em "Abrir conversa e marcar como enviada" (um clique seu libera) ou permita pop-ups para este site.';
+      say(S.autoMsg); renderQueue();
+      return false;
+    }
+    S.autoMsg = ''; autoWaitSince = 0;
+    startCool();
+    setTimeout(function () { S.status[i] = 'enviado'; renderQueue(); }, 300);
+    return true;
+  }
+  function setAutoMsg(t) { if (S.autoMsg !== t) { S.autoMsg = t; renderQueue(); } }
   /* Quando a pausa termina, abre sozinho a próxima conversa e marca como enviada (igual ao botão). */
   var autoOpenT = null;
   function autoOpenNext() {
@@ -775,15 +795,16 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     if (!$('#autoOpen').checked) return;
     var nx = items().filter(function (x) { return x.valid && x.status === 'pendente'; })[0];
     if (!nx || S.until - Date.now() > 0) return;
-    if (aiWaiting(nx.i)) { autoOpenT = setTimeout(autoOpenNext, 1000); return; }
-    var w = window.open(link(nx), '_blank');
-    if (!w) {
-      say('O navegador bloqueou a abertura automática. Permita pop-ups para este site (ícone na barra de endereço) e clique em "Abrir conversa e marcar como enviada".');
-      return;
+    if (aiWaiting(nx.i)) {
+      if (!autoWaitSince) autoWaitSince = Date.now();
+      if (Date.now() - autoWaitSince < AUTO_AI_WAIT_MS) {
+        setAutoMsg('Pausa terminou. Aguardando a IA terminar a reescrita para abrir a próxima conversa automaticamente…');
+        autoOpenT = setTimeout(autoOpenNext, 1000);
+        return;
+      }
+      say('A IA demorou demais; abri a conversa com a mensagem padrão.');
     }
-    try { w.opener = null; } catch (e) {}
-    startCool();
-    setTimeout(function () { S.status[nx.i] = 'enviado'; renderQueue(); }, 300);
+    openChat(nx.i);
   }
   setInterval(function () {
     if (!S.armed || S.until - Date.now() > 0) return;
@@ -839,8 +860,8 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       if (S.until - Date.now() > 0) { e.preventDefault(); say('Aguarde o fim da pausa para abrir a próxima conversa.'); return; }
       var i = +a.dataset.open;
       if (aiWaiting(i)) { e.preventDefault(); say('Aguarde a IA terminar de reescrever esta mensagem (alguns segundos).'); return; }
-      startCool();
-      setTimeout(function () { S.status[i] = 'enviado'; renderQueue(); }, 300);
+      e.preventDefault();
+      openChat(i);
       return;
     }
     if (e.target.closest('[data-release]')) {

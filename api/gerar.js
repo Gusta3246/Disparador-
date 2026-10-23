@@ -1,4 +1,4 @@
-// Função serverless da Vercel: recebe o pedido do site, chama o Gemini com a chave
+// Função serverless da Vercel: recebe o pedido do site, chama o OpenRouter com a chave
 // guardada em variável de ambiente e devolve só o texto gerado.
 // A chave NUNCA vai para o navegador.
 
@@ -52,37 +52,38 @@ function buildRewritePrompt(tone, source) {
   );
 }
 
-async function callGemini(key, prompt) {
-  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+async function callOpenRouter(key, prompt) {
+  const model = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
+  const url = 'https://openrouter.ai/api/v1/chat/completions';
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 50000);
 
-  // Modelos "thinking" ficam lentos se pensarem muito. Pedimos pouco raciocínio (thinkingLevel low).
-  // Se o modelo não aceitar esse campo (erro 400), repetimos sem ele.
-  const post = (withThinking) =>
-    fetch(url, {
-      method: 'POST',
-      signal: ctl.signal,
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: Object.assign(
-          { temperature: 1.0, maxOutputTokens: 4096 },
-          withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}
-        ),
-      }),
-    });
-
   let r;
   try {
-    r = await post(true);
-    if (r.status === 400) r = await post(false);
+    r = await fetch(url, {
+      method: 'POST',
+      signal: ctl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + key,
+        // Opcionais: identificam seu app no painel do OpenRouter.
+        'HTTP-Referer': process.env.OPENROUTER_REFERER || 'https://vercel.com',
+        'X-Title': 'Disparador WhatsApp',
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 1.0,
+        max_tokens: 4096,
+        messages: [
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
   } catch (e) {
     clearTimeout(timer);
-    if (e && e.name === 'AbortError') return { status: 504, error: 'O Gemini demorou demais para responder. Tente de novo.' };
-    return { status: 502, error: 'Não consegui falar com o Gemini agora. Tente de novo em instantes.' };
+    if (e && e.name === 'AbortError') return { status: 504, error: 'A IA demorou demais para responder. Tente de novo.' };
+    return { status: 502, error: 'Não consegui falar com o OpenRouter agora. Tente de novo em instantes.' };
   }
 
   let detail = '';
@@ -92,28 +93,22 @@ async function callGemini(key, prompt) {
       detail = j && j.error && j.error.message ? ' Detalhe: ' + String(j.error.message).slice(0, 200) : '';
     } catch (e) { /* sem detalhe */ }
   }
+  clearTimeout(timer);
 
-  if (r.status === 429) { clearTimeout(timer); return { status: 429, error: 'Limite gratuito da IA atingido. Espere um pouco e tente de novo.' + detail }; }
-  if (r.status === 400 || r.status === 401 || r.status === 403) {
-    clearTimeout(timer);
-    return { status: 502, error: 'O Gemini recusou o pedido. Confira se a chave GEMINI_API_KEY está correta e ativa.' + detail };
-  }
-  if (r.status === 404) {
-    clearTimeout(timer);
-    return { status: 502, error: 'Modelo do Gemini não encontrado. Defina GEMINI_MODEL na Vercel com um modelo disponível.' + detail };
-  }
-  if (!r.ok) { clearTimeout(timer); return { status: 502, error: 'O Gemini respondeu com erro (' + r.status + '). Tente de novo.' + detail }; }
+  if (r.status === 401) return { status: 502, error: 'O OpenRouter recusou a chave. Confira se OPENROUTER_API_KEY está correta e ativa.' + detail };
+  if (r.status === 402) return { status: 502, error: 'Sem créditos no OpenRouter. Adicione saldo em openrouter.ai/credits ou use um modelo gratuito.' + detail };
+  if (r.status === 429) return { status: 429, error: 'Limite de uso da IA atingido. Espere um pouco e tente de novo.' + detail };
+  if (r.status === 400 || r.status === 404) return { status: 502, error: 'Modelo não encontrado ou pedido inválido. Confira OPENROUTER_MODEL na Vercel (formato provedor/modelo).' + detail };
+  if (!r.ok) return { status: 502, error: 'O OpenRouter respondeu com erro (' + r.status + '). Tente de novo.' + detail };
 
   let data = {};
   try {
     data = await r.json();
   } catch (e) {
-    clearTimeout(timer);
-    return { status: 502, error: 'A resposta do Gemini veio incompleta. Tente de novo.' };
+    return { status: 502, error: 'A resposta do OpenRouter veio incompleta. Tente de novo.' };
   }
-  clearTimeout(timer);
-  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-  const text = Array.isArray(parts) ? parts.filter((x) => !x.thought).map((x) => x.text || '').join('') : '';
+  const msg = data && data.choices && data.choices[0] && data.choices[0].message;
+  const text = msg && typeof msg.content === 'string' ? msg.content : '';
   if (!text.trim()) return { status: 502, error: 'A IA não devolveu texto desta vez. Tente de novo.' };
   return { status: 200, text };
 }
@@ -124,10 +119,10 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Método não permitido.' });
   }
 
-  const key = process.env.GEMINI_API_KEY;
+  const key = process.env.OPENROUTER_API_KEY;
   if (!key) {
     return res.status(500).json({
-      error: 'O servidor ainda não tem a chave da IA. Cadastre GEMINI_API_KEY na Vercel e faça um novo deploy.',
+      error: 'O servidor ainda não tem a chave da IA. Cadastre OPENROUTER_API_KEY na Vercel e faça um novo deploy.',
     });
   }
 
@@ -152,7 +147,7 @@ module.exports = async (req, res) => {
     prompt = buildVariationsPrompt(n, tone, examples, source, ask);
   }
 
-  const out = await callGemini(key, prompt);
+  const out = await callOpenRouter(key, prompt);
   if (out.error) return res.status(out.status).json({ error: out.error });
   return res.status(200).json({ text: out.text });
 };

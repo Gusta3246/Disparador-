@@ -8,7 +8,7 @@ const SYSTEM =
   'Você é redator de mensagens de WhatsApp em português do Brasil para um corretor de imóveis. ' +
   'Escreve de forma natural, humana e sem exageros.';
 
-function buildPrompt(n, tone, examples, source, ask) {
+function buildVariationsPrompt(n, tone, examples, source, ask) {
   const format =
     '- Use exatamente os marcadores {primeiro_nome} e {saudacao}, com chaves, na abertura.\n' +
     '- Use variações no formato {opção 1|opção 2|opção 3} em várias palavras ou trechos, como nos exemplos. As opções de cada chave devem encaixar na mesma frase.\n' +
@@ -39,6 +39,54 @@ function buildPrompt(n, tone, examples, source, ask) {
   );
 }
 
+// Reescreve UMA mensagem já pronta (com nome, data, valores), sem marcadores.
+function buildRewritePrompt(tone, source) {
+  return (
+    'Reescreva a mensagem de WhatsApp abaixo com outras palavras e outra estrutura de frase, mantendo o mesmo sentido. Tom: ' + tone + '.\n\n' +
+    'Regras:\n' +
+    '- Mantenha exatamente como estão: nomes, datas, horários, valores, nome do empreendimento e a apresentação do Luis, corretor da MRV.\n' +
+    '- Não invente informações nem promessas.\n' +
+    '- Tamanho parecido com o original. No máximo 1 emoji.\n' +
+    '- Responda SOMENTE com a mensagem reescrita, sem aspas e sem explicações.\n\n' +
+    'MENSAGEM:\n"""\n' + source + '\n"""'
+  );
+}
+
+async function callGemini(key, prompt) {
+  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+
+  let r;
+  try {
+    r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: SYSTEM }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 1.0, maxOutputTokens: 4096 },
+      }),
+    });
+  } catch (e) {
+    return { status: 502, error: 'Não consegui falar com o Gemini agora. Tente de novo em instantes.' };
+  }
+
+  if (r.status === 429) return { status: 429, error: 'Limite gratuito da IA atingido. Espere um pouco e tente de novo.' };
+  if (r.status === 400 || r.status === 401 || r.status === 403) {
+    return { status: 502, error: 'O Gemini recusou o pedido. Confira se a chave GEMINI_API_KEY está correta e ativa.' };
+  }
+  if (r.status === 404) {
+    return { status: 502, error: 'Modelo do Gemini não encontrado. Defina GEMINI_MODEL na Vercel com um modelo disponível.' };
+  }
+  if (!r.ok) return { status: 502, error: 'O Gemini respondeu com erro (' + r.status + '). Tente de novo.' };
+
+  const data = await r.json().catch(() => ({}));
+  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+  const text = Array.isArray(parts) ? parts.map((p) => p.text || '').join('') : '';
+  if (!text.trim()) return { status: 502, error: 'A IA não devolveu texto desta vez. Tente de novo.' };
+  return { status: 200, text };
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -53,61 +101,27 @@ module.exports = async (req, res) => {
   }
 
   const body = req.body && typeof req.body === 'object' ? req.body : {};
-
-  // Senha opcional, para ninguém que descubra o link gastar a sua cota.
-  const need = process.env.ACCESS_CODE;
-  if (need && body.code !== need) {
-    return res.status(401).json({ error: 'Senha de acesso incorreta.' });
-  }
-
-  const n = Math.min(15, Math.max(1, parseInt(body.n, 10) || 6));
   const tone = TONES.includes(body.tone) ? body.tone : TONES[0];
-  const examples = (Array.isArray(body.examples) ? body.examples : [])
-    .filter((x) => typeof x === 'string' && x.trim())
-    .slice(0, 3)
-    .map((x) => x.slice(0, 800));
   const source = typeof body.source === 'string' ? body.source.trim().slice(0, 1500) : '';
-  const ask = typeof body.ask === 'string' ? body.ask.trim().slice(0, 200) : '';
-  if (!examples.length) {
-    return res.status(400).json({ error: 'Faltam exemplos de mensagem no texto-modelo.' });
+
+  let prompt;
+  if (body.mode === 'rewrite') {
+    if (!source) return res.status(400).json({ error: 'Não há mensagem para reescrever.' });
+    prompt = buildRewritePrompt(tone, source);
+  } else {
+    const n = Math.min(15, Math.max(1, parseInt(body.n, 10) || 6));
+    const ask = typeof body.ask === 'string' ? body.ask.trim().slice(0, 200) : '';
+    const examples = (Array.isArray(body.examples) ? body.examples : [])
+      .filter((x) => typeof x === 'string' && x.trim())
+      .slice(0, 3)
+      .map((x) => x.slice(0, 800));
+    if (!examples.length) {
+      return res.status(400).json({ error: 'Faltam exemplos de mensagem no texto-modelo.' });
+    }
+    prompt = buildVariationsPrompt(n, tone, examples, source, ask);
   }
 
-  const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
-
-  let r;
-  try {
-    r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
-        contents: [{ role: 'user', parts: [{ text: buildPrompt(n, tone, examples, source, ask) }] }],
-        generationConfig: { temperature: 1.0, maxOutputTokens: 4096 },
-      }),
-    });
-  } catch (e) {
-    return res.status(502).json({ error: 'Não consegui falar com o Gemini agora. Tente de novo em instantes.' });
-  }
-
-  if (r.status === 429) {
-    return res.status(429).json({ error: 'Limite gratuito da IA atingido. Espere um pouco e tente de novo.' });
-  }
-  if (r.status === 400 || r.status === 401 || r.status === 403) {
-    return res.status(502).json({ error: 'O Gemini recusou o pedido. Confira se a chave GEMINI_API_KEY está correta e ativa.' });
-  }
-  if (r.status === 404) {
-    return res.status(502).json({ error: 'Modelo do Gemini não encontrado. Defina GEMINI_MODEL na Vercel com um modelo disponível.' });
-  }
-  if (!r.ok) {
-    return res.status(502).json({ error: 'O Gemini respondeu com erro (' + r.status + '). Tente de novo.' });
-  }
-
-  const data = await r.json().catch(() => ({}));
-  const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-  const text = Array.isArray(parts) ? parts.map((p) => p.text || '').join('') : '';
-  if (!text.trim()) {
-    return res.status(502).json({ error: 'A IA não devolveu texto desta vez. Tente de novo.' });
-  }
-  return res.status(200).json({ text });
+  const out = await callGemini(key, prompt);
+  if (out.error) return res.status(out.status).json({ error: out.error });
+  return res.status(200).json({ text: out.text });
 };

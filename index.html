@@ -342,7 +342,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         </label>
         <p class="note">Escreva opções entre chaves separadas por barra, como <code>{Olá|Oi|Opa}</code>, e uma delas é sorteada para cada contato. Para ter versões completas diferentes (agora há <b id="verCount">40</b> versões), separe-as com uma linha contendo só <code>---</code>. O nome da planilha é ajustado automaticamente para a primeira letra maiúscula e o resto minúscula. A variável <code>{saudacao}</code> vira bom dia, boa tarde ou boa noite conforme a hora.</p>
         <div class="aibox">
-          <div class="label">Mais variações com IA (Gemini)</div>
+          <div class="label">Mais variações com IA</div>
           <div class="row2">
             <label class="f" for="aiN">Quantas versões novas
               <input type="number" id="aiN" min="1" max="15" value="6">
@@ -366,7 +366,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
             <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
             <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
           </div>
-          <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave do Gemini fica guardada no servidor.</p>
+          <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave da IA fica guardada no servidor.</p>
         </div>
         <div>
           <div class="label" style="margin-bottom:6px">Variáveis da planilha</div>
@@ -821,11 +821,11 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     } catch (e) { fallback(); }
   });
 
-  /* ---------- variações com IA (Gemini via /api/gerar) ---------- */
+  /* ---------- variações com IA (OpenRouter via /api/gerar) ---------- */
   var aiBackup = null;
   function variantsOf(t) { return t.split(/^[ \t]*---[ \t]*$/m).map(function (s) { return s.trim(); }).filter(Boolean); }
   function aiSay(t) { $('#aiNote').textContent = t; }
-  /* A chave do Gemini fica só no servidor (variável de ambiente da Vercel). Aqui o navegador chama /api/gerar. */
+  /* A chave da IA fica só no servidor (variável de ambiente da Vercel). Aqui o navegador chama /api/gerar. */
   function aiErr(m) { var e = new Error(m); e.status = 1; return e; }
   function aiPost(payload) {
     var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 65000);

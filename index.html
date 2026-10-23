@@ -1,0 +1,1004 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Disparador de WhatsApp</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: coluna de preparo (contatos, mensagem) ao lado da fila de envio; empilha no celular. */
+  :root {
+    --bg: #EEF1EC;
+    --surface: #FAFBF8;
+    --fg: #17231D;
+    --muted: #5A6A61;
+    --line: #D3DAD2;
+    --accent: #0F7A52;
+    --accent-fg: #FFFFFF;
+    --accent-soft: #DDEFE5;
+    --warn: #A8561A;
+    --warn-soft: #F5E4D3;
+    --bad: #A8321F;
+    --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0F1713; --surface: #16201B; --fg: #E6EEE8; --muted: #93A59A; --line: #26342C;
+      --accent: #3FC38A; --accent-fg: #06150E; --accent-soft: #153326;
+      --warn: #E0A06A; --warn-soft: #35261A; --bad: #F08A76;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0F1713; --surface: #16201B; --fg: #E6EEE8; --muted: #93A59A; --line: #26342C;
+    --accent: #3FC38A; --accent-fg: #06150E; --accent-soft: #153326;
+    --warn: #E0A06A; --warn-soft: #35261A; --bad: #F08A76;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+    padding-block: 28px 48px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .theme-btn { flex: none; white-space: nowrap; }
+  .wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+  h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.7rem, 4vw, 2.3rem); line-height: 1.1; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  h2 { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; margin: 0; text-wrap: balance; }
+  p { margin: 0; }
+  .lede { color: var(--muted); max-width: 62ch; margin-top: 8px; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .label { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 20px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .step { font-family: var(--font-mono); font-size: 0.78rem; color: var(--accent); font-weight: 500; }
+
+  .drop { display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center; text-align: center; padding: 20px 14px; border: 1.5px dashed var(--line); border-radius: 8px; cursor: pointer; color: var(--muted); }
+  .drop strong { color: var(--fg); font-weight: 600; }
+  .drop:hover, .drop.over, .drop:focus-within { border-color: var(--accent); background: var(--accent-soft); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  textarea, select { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  textarea { resize: vertical; min-height: 92px; }
+  textarea.mono-in { font-family: var(--font-mono); font-size: 0.82rem; min-height: 72px; }
+  textarea:focus-visible, select:focus-visible, .btn:focus-visible, .chip:focus-visible, .tab:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); min-width: 0; }
+  .row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 460px) { .row2 { grid-template-columns: minmax(0, 1fr); } }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; font: inherit; font-weight: 600; font-size: 0.9rem; padding: 9px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; text-decoration: none; text-align: center; }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.big { padding: 13px 18px; font-size: 1rem; flex: 1 1 240px; }
+  .btn.sm { padding: 5px 10px; font-size: 0.8rem; }
+  .btn[aria-disabled="true"] { opacity: 0.45; pointer-events: none; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-family: var(--font-mono); font-size: 0.78rem; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .bubble { background: var(--accent-soft); border-radius: 12px 12px 12px 3px; padding: 10px 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+  .note { font-size: 0.85rem; color: var(--muted); }
+  .flag { font-size: 0.8rem; background: var(--warn-soft); color: var(--warn); border-radius: 6px; padding: 6px 10px; }
+
+  .progress { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width 0.25s; }
+  .stats { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 0.88rem; }
+  .stats b { font-variant-numeric: tabular-nums; }
+
+  .next { border: 1px solid var(--accent); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 12px; background: var(--surface); }
+  .next-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .next-who strong { font-family: var(--font-display); font-size: 1.25rem; overflow-wrap: anywhere; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tab { font: inherit; font-size: 0.82rem; padding: 4px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .tab[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+
+  .list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-height: 460px; overflow-y: auto; }
+  .item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted); }
+  .item.enviado .dot { background: var(--accent); border-color: var(--accent); }
+  .item.invalido .dot { border-color: var(--bad); }
+  .item.enviado .nm { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+  .nm { font-weight: 500; overflow-wrap: anywhere; }
+  .num { font-size: 0.78rem; color: var(--muted); }
+  .item .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .bad { color: var(--bad); font-size: 0.78rem; }
+  .empty { padding: 22px; text-align: center; color: var(--muted); }
+  .cd { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 0.88rem; color: var(--muted); }
+  .cd .time { font-family: var(--font-mono); font-size: 1.3rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+  .cd.ready { color: var(--accent); }
+  .timing { display: flex; flex-direction: column; gap: 8px; }
+  .chk { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+  input[type="number"] { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  input[type="number"]:focus-visible, input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  #copyOut { display: none; }
+  #copyOut.show { display: block; }
+  #msgline { min-height: 1.3em; font-size: 0.85rem; color: var(--accent); }
+  .mtab { font: inherit; font-weight: 600; font-size: 0.9rem; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+  .mtab[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+  .mtab:focus-visible, input[type="text"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type="text"] { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  #leadMsg { min-height: 220px; }
+  #leadNote { min-height: 1.3em; }
+  .aibox { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .btn:disabled { opacity: 0.55; cursor: progress; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="top">
+      <h1>Disparador de WhatsApp</h1>
+      <button class="btn sm theme-btn" id="theme" type="button" aria-pressed="false"></button>
+    </div>
+    <p class="lede">Carregue a planilha, escreva a mensagem e abra cada conversa já preenchida. Em cada uma, você só aperta Enviar no WhatsApp.</p>
+  </header>
+
+  <div class="tabs" id="modes" role="group" aria-label="Modo de uso">
+    <button class="mtab" type="button" data-mode="mass" aria-pressed="true">Disparo em massa</button>
+    <button class="mtab" type="button" data-mode="lead" aria-pressed="false">Lead individual</button>
+  </div>
+
+  <div id="viewMass">
+  <div class="grid">
+    <div class="col">
+      <section class="card" aria-labelledby="h-contatos">
+        <div class="card-head"><span class="step">1</span><h2 id="h-contatos">Contatos</h2></div>
+        <label class="drop" id="drop" for="file">
+          <strong>Escolha o arquivo ou solte aqui</strong>
+          <span>.xlsx, .xls ou .csv</span>
+          <input class="sr" type="file" id="file" accept=".xlsx,.xls,.csv,.txt">
+        </label>
+        <label class="f" for="paste">Ou cole as linhas copiadas da planilha
+          <textarea id="paste" class="mono-in" placeholder="Nome&#9;Telefone&#10;Maria&#9;(92) 99999-0001"></textarea>
+        </label>
+        <div class="actions"><button class="btn sm" id="loadPaste" type="button">Carregar texto colado</button></div>
+        <div id="cols" class="row2">
+          <label class="f" for="phoneCol">Coluna do telefone ou link
+            <select id="phoneCol"></select>
+          </label>
+          <label class="f" for="nameCol">Coluna do nome
+            <select id="nameCol"></select>
+          </label>
+        </div>
+        <p class="note" id="summary"></p>
+        <p class="flag" id="exampleFlag">Contatos de exemplo. Carregue sua planilha para substituí-los.</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-msg">
+        <div class="card-head"><span class="step">2</span><h2 id="h-msg">Mensagem</h2></div>
+        <label class="f" for="tpl">Texto da mensagem
+          <textarea id="tpl" rows="16">{Olá|Oi|Opa|E aí}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.
+
+{Você ainda tem interesse|Ainda tem interesse|Você continua com interesse} em adquirir seu imóvel com uma entrada a partir de R$ 500,00?
+---
+{Oi|Olá}, {primeiro_nome}, {saudacao}. Aqui é o Luis, corretor MRV.
+
+Seu interesse em um imóvel com entrada a partir de R$ 500,00 {continua|ainda existe|segue de pé}?
+---
+{saudacao}, {primeiro_nome}! {Tudo bem|Tudo certo|Como você está}? Aqui é o Luis, da MRV.
+
+{Passando para saber|Estou entrando em contato para saber|Queria saber} se você ainda quer {sair do aluguel|conquistar seu imóvel|realizar o sonho da casa própria}. Hoje temos opções com entrada a partir de R$ 500,00.
+---
+{Olá|Oi}, {primeiro_nome}! Luis aqui, corretor da MRV. {saudacao}!
+
+{Você chegou a pedir informações|Você demonstrou interesse|Você falou com a gente} sobre um imóvel com entrada {facilitada|reduzida}. {Ainda faz sentido pra você|Ainda é do seu interesse|Esse interesse continua}? A entrada começa em R$ 500,00.
+---
+{Oi|Olá|Opa}, {primeiro_nome}. {saudacao}!
+
+Meu nome é Luis, sou corretor da MRV. {Posso te ajudar|Posso te apresentar|Posso te mostrar} {as opções|os imóveis disponíveis|as condições atuais} com entrada a partir de R$ 500,00?
+---
+{saudacao}, {primeiro_nome}. Sou o Luis, corretor da MRV.
+
+{Ainda está procurando|Você ainda está em busca de|Continua buscando} {um apartamento|um imóvel|um lugar pra chamar de seu}? Temos {condições|oportunidades} com entrada a partir de R$ 500,00.
+---
+{Olá|Oi}, {primeiro_nome}! {saudacao}. Aqui é o Luis da MRV.
+
+{Retomando|Voltando a falar sobre|Dando continuidade ao} seu interesse em um imóvel: a entrada {pode ser|começa} a partir de R$ 500,00. {Quer que eu te explique como funciona|Posso te passar os detalhes|Posso te explicar melhor}?
+---
+{Oi|Olá|E aí}, {primeiro_nome}, {saudacao}! Tudo bem? Luis, corretor da MRV, falando.
+
+{Você ainda pensa|Você ainda está pensando|Ainda está nos seus planos} em {comprar|adquirir} um imóvel? Com entrada a partir de R$ 500,00 {dá pra começar|fica mais fácil começar|o primeiro passo cabe no bolso}.
+---
+{saudacao}, {primeiro_nome}! Sou Luis, corretor MRV.
+
+{Tenho uma condição especial|Estou com uma condição interessante|Temos uma condição boa} de entrada a partir de R$ 500,00. {Você ainda tem interesse|Isso ainda te interessa|Posso te passar mais detalhes}?
+---
+{Oi|Olá}, {primeiro_nome}. Aqui é o Luis, da MRV. {saudacao}!
+
+{Só queria confirmar|Passando só pra confirmar|Queria confirmar rapidinho} se você {ainda quer|continua querendo|segue querendo} {conhecer|saber mais sobre} os imóveis com entrada a partir de R$ 500,00.
+---
+{Olá|Oi|Opa}, {primeiro_nome}! {saudacao}. Luis, corretor da MRV, por aqui.
+
+{Faz um tempinho que conversamos|Já faz um tempo que falamos|Há um tempo você pediu informações} sobre imóvel. {Ainda busca|Você ainda busca|Segue buscando} {sair do aluguel|um lugar seu}? A entrada hoje parte de R$ 500,00.
+---
+{saudacao}, {primeiro_nome}. {Tudo bem|Tudo certo}?
+
+Sou o Luis, corretor da MRV, e {estou separando|estou organizando|estou fazendo} um {atendimento|contato} com quem quer {um imóvel novo|comprar um apartamento|ter casa própria}. Entrada a partir de R$ 500,00. {Ainda tem interesse|Você ainda quer saber mais|Posso te explicar}?
+---
+{Oi|Olá}, {primeiro_nome}! Aqui é o Luis, corretor da MRV. {saudacao}!
+
+{Seu sonho da casa própria|A ideia de ter seu imóvel|O plano de comprar seu imóvel} {ainda está de pé|continua|segue em andamento}? Posso te mostrar opções com entrada a partir de R$ 500,00.
+---
+{Opa|Oi|Olá}, {primeiro_nome}, {saudacao}. Luis da MRV aqui.
+
+{Uma pergunta rápida|Pergunta rápida|Só uma pergunta}: você {ainda tem interesse|continua com interesse|segue com interesse} em um imóvel com entrada a partir de R$ 500,00?
+---
+{saudacao}, {primeiro_nome}! Sou o Luis, corretor da MRV.
+
+{Estou entrando em contato|Estou te chamando|Passei aqui} porque {ainda temos|ainda há|existem} {unidades|apartamentos|opções} com entrada a partir de R$ 500,00. {Quer saber mais|Posso te passar os detalhes|Quer que eu te explique}?
+---
+{Olá|Oi}, {primeiro_nome}. {saudacao}, {tudo bem|tudo certo}? Aqui é o Luis, da MRV.
+
+{Você ainda tem interesse|Ainda tem interesse|Seu interesse continua} em {adquirir|comprar|conquistar} seu imóvel? Posso fazer {uma simulação|uma simulação rápida} para você. A entrada começa em R$ 500,00.
+---
+{Oi|Olá}, {primeiro_nome}! {saudacao}. Aqui é o Luis, corretor da MRV.
+
+{Lembrei de você|Pensei em você|Me lembrei do seu contato} e quis saber: {já encontrou o imóvel ideal|você já resolveu a questão do imóvel|conseguiu realizar a compra do seu imóvel}? Se ainda não, temos entrada a partir de R$ 500,00.
+---
+{saudacao}, {primeiro_nome}. Luis, corretor da MRV, aqui.
+
+{Sua busca por um imóvel|O seu plano de sair do aluguel|Seu interesse em casa própria} {continua|segue de pé|segue em andamento}? {Consigo te passar|Posso te mostrar} {as condições atuais|novas opções|uma simulação} com entrada a partir de R$ 500,00.
+---
+{Oi|Olá|Opa}, {primeiro_nome}! {saudacao}.
+
+Sou o Luis, da MRV. {Estou com|Tenho} {unidades disponíveis|opções disponíveis|imóveis disponíveis} com entrada a partir de R$ 500,00. {Posso te mandar os detalhes|Quer que eu te envie as informações|Te mando as informações}?
+---
+{saudacao}, {primeiro_nome}! Tudo bem?
+
+Aqui é o Luis, corretor da MRV. {Você deixou seu contato|Você pediu informações|Você se cadastrou} sobre imóveis e {queria saber|gostaria de saber} se {ainda faz sentido|ainda é um bom momento|ainda é o momento} para você. Entrada a partir de R$ 500,00.
+---
+{Olá|Oi}, {primeiro_nome}. {saudacao}! Luis, da MRV.
+
+{Posso fazer uma simulação|Posso simular seu financiamento|Posso calcular as condições} {sem compromisso|rapidinho} pra você? A entrada começa em R$ 500,00.
+---
+{Oi|Olá}, {primeiro_nome}! {saudacao}. Aqui é o Luis, corretor da MRV.
+
+{Muita gente acha|Muitas pessoas acham|Tem gente que pensa} que {comprar imóvel|ter casa própria} {exige|precisa de} uma entrada alta, mas {aqui|na MRV|com a gente} ela pode começar em R$ 500,00. {Quer entender como|Posso te explicar como|Quer que eu te explique como} funciona?
+---
+{saudacao}, {primeiro_nome}! Sou o Luis, corretor da MRV.
+
+{Passando rapidinho|Só passando|Estou passando} para {saber|perguntar} se você já {escolheu|definiu} {seu imóvel|onde quer morar|o apartamento dos seus sonhos}. {Ainda tenho|Temos|Posso te mostrar} {condições|opções} com entrada a partir de R$ 500,00.
+---
+{Olá|Oi|Opa}, {primeiro_nome}! {saudacao}. Luis aqui, da MRV.
+
+{Você ainda quer|Continua querendo|Segue com vontade de} {sair do aluguel|ter seu próprio cantinho|ter sua casa própria}? {Se sim|Se for o caso|Se ainda for o seu plano}, {tenho|temos|consigo te passar} {uma condição|uma opção|uma proposta} com entrada a partir de R$ 500,00.
+---
+{saudacao}, {primeiro_nome}. {Tudo bem|Tudo certo|Como vai}? Luis, corretor da MRV.
+
+{Retomando nosso contato|Voltando ao nosso contato|Entrando em contato de novo}: {seu interesse em imóvel|a busca pelo seu imóvel|seu plano de comprar um imóvel} {continua|segue de pé}? {A entrada|Hoje a entrada} {começa em|inicia em|parte de} R$ 500,00.
+---
+{Oi|Olá}, {primeiro_nome}! {saudacao}. Aqui é o Luis, da MRV.
+
+{Tenho uma novidade|Tenho uma boa notícia|Tenho uma informação} pra você: {conseguimos|estamos conseguindo|temos conseguido} {condições|oportunidades} com entrada a partir de R$ 500,00. {Quer saber mais|Posso te explicar|Posso te passar os detalhes}?
+---
+{Opa|Oi|Olá}, {primeiro_nome}, {saudacao}! Aqui é o Luis, corretor da MRV.
+
+{Você tem um minutinho|Você teria um minutinho|Tem um tempinho} pra falar sobre {imóvel|a compra do seu imóvel}? Tenho uma opção com entrada a partir de R$ 500,00 que {pode te interessar|pode caber no seu bolso|vale a pena conhecer}.
+---
+{Olá|Oi}, {primeiro_nome}! {saudacao}. Luis, corretor da MRV, por aqui.
+
+{Faz tempo que não nos falamos|Faz um tempo que não conversamos|Fiquei sem notícias suas}, {e|então} {queria saber|gostaria de saber} como {está|anda} {a busca pelo seu imóvel|seu plano de ter casa própria}. {Hoje|Agora} {a entrada parte|temos entrada a partir} de R$ 500,00.
+---
+{saudacao}, {primeiro_nome}! Aqui é o Luis, da MRV.
+
+{Posso ser direto|Vou ser direto|Vou direto ao ponto}: você ainda {quer|pretende} {comprar|adquirir} um imóvel? Tenho condições com entrada a partir de R$ 500,00 e {posso te explicar tudo por aqui|posso te explicar em poucos minutos|te explico rapidinho}.
+---
+{Oi|Olá|Opa}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.
+
+{Encontrei seu contato|Vi seu cadastro|Seu nome apareceu} aqui na minha lista e {quis|resolvi} {te chamar|falar com você} {pra saber|para saber} se {ainda busca|ainda procura|continua procurando} imóvel. {Temos|Tenho} entrada a partir de R$ 500,00.
+---
+{saudacao}, {primeiro_nome}! {Tudo bem|Tudo certo}? Luis da MRV aqui.
+
+Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|gostaria de} {receber os detalhes por aqui|ver uma simulação|marcar uma conversa rápida}?
+---
+{Olá|Oi}, {primeiro_nome}! {saudacao}. Aqui é o Luis, corretor da MRV.
+
+{Já pensou em ter|Que tal ter|Imagina ter} seu imóvel próprio, sem pagar aluguel? Hoje a entrada parte de R$ 500,00. {Posso te explicar como funciona|Quer saber como funciona|Posso te passar os detalhes}?
+---
+{saudacao}, {primeiro_nome}. Luis, da MRV, {falando|por aqui|aqui}.
+
+{Estou atualizando|Estou revisando|Estou organizando} meus atendimentos e {gostaria de saber|queria saber} se {devo manter|posso manter} seu contato para {novas condições|novidades|oportunidades} de imóvel com entrada a partir de R$ 500,00. {Ainda tem interesse|Você ainda quer receber|Segue com interesse}?
+---
+{Oi|Olá}, {primeiro_nome}! {saudacao}. Sou o Luis, corretor da MRV.
+
+{Pergunta simples|Uma pergunta simples|Tenho uma pergunta simples}: se a entrada começasse em R$ 500,00, {você teria interesse em conhecer as opções que temos|você gostaria de conhecer os imóveis disponíveis|faria sentido conhecer os apartamentos disponíveis}?
+---
+{saudacao}, {primeiro_nome}! Aqui é o Luis, da MRV. {Tudo bem|Tudo certo}?
+
+{Tenho novidades de imóvel|Estou com opções novas de imóvel|Estou com condições atualizadas de imóvel} e {lembrei de você|pensei em você|achei que poderia te interessar}. A entrada {começa em|inicia em|parte de} R$ 500,00. {Quer ver|Posso te mostrar|Posso te enviar}?
+---
+{Oi|Olá|Opa}, {primeiro_nome}, {saudacao}! Luis, corretor da MRV.
+
+{Você já fez|Você já chegou a fazer|Já fez} uma simulação de financiamento de imóvel? Se não, {posso fazer agora|posso fazer pra você|faço pra você rapidinho}. A entrada {começa|inicia} em R$ 500,00.
+---
+{saudacao}, {primeiro_nome}! Sou o Luis, corretor da MRV.
+
+{Imóvel novo|Apartamento novo|Casa própria} {é possível|está ao seu alcance|cabe no seu planejamento} com entrada a partir de R$ 500,00. {Posso te mostrar como|Quer entender como}?
+---
+{Olá|Oi}, {primeiro_nome}. {saudacao}! Aqui é o Luis, da MRV.
+
+{Estou entrando em contato|Passei aqui|Vim aqui} {só pra|só para|apenas para} {saber|confirmar} se você {ainda busca|continua buscando|ainda procura} {um imóvel|um apartamento|um lugar pra morar}. Posso te ajudar com {a simulação e as condições|as condições e os valores|a simulação e os valores}; a entrada começa em R$ 500,00.
+---
+{saudacao}, {primeiro_nome}! {Como vai|Tudo bem|Tudo certo}? Luis aqui, da MRV.
+
+{Quero|Gostaria de|Queria} {te apresentar|te mostrar|te explicar} {uma forma de|um jeito de} {sair do aluguel|conquistar seu imóvel|ter sua casa própria} com entrada a partir de R$ 500,00. {Posso te chamar para explicar|Posso te explicar por aqui|Posso te passar os detalhes}?
+---
+{Oi|Olá}, {primeiro_nome}! {saudacao}. Sou o Luis, da MRV.
+
+{Ainda está de olho em|Continua de olho em|Segue de olho em} {um imóvel novo|um apartamento|uma casa própria}? {Por aqui|Hoje|No momento} a entrada começa em R$ 500,00. {Posso te mostrar as opções|Quer ver as opções|Quer que eu te explique}?</textarea>
+        </label>
+        <p class="note">Escreva opções entre chaves separadas por barra, como <code>{Olá|Oi|Opa}</code>, e uma delas é sorteada para cada contato. Para ter versões completas diferentes (agora há <b id="verCount">40</b> versões), separe-as com uma linha contendo só <code>---</code>. O nome da planilha é ajustado automaticamente para a primeira letra maiúscula e o resto minúscula. A variável <code>{saudacao}</code> vira bom dia, boa tarde ou boa noite conforme a hora.</p>
+        <div class="aibox">
+          <div class="label">Mais variações com IA (Gemini)</div>
+          <div class="row2">
+            <label class="f" for="aiN">Quantas versões novas
+              <input type="number" id="aiN" min="1" max="15" value="6">
+            </label>
+            <label class="f" for="aiTone">Tom
+              <select id="aiTone">
+                <option>Natural e amigável</option>
+                <option>Mais direto e curto</option>
+                <option>Mais formal</option>
+                <option>Mais descontraído</option>
+              </select>
+            </label>
+          </div>
+          <label class="f" for="aiSrc">Seu texto (opcional): cole uma mensagem e a IA reescreve
+            <textarea id="aiSrc" rows="4" placeholder="Ex.: Olá, tudo bem? Sou corretor e tenho apartamentos com entrada baixa. Quer saber mais?"></textarea>
+          </label>
+          <label class="f" for="aiAsk">O que ajustar (opcional)
+            <input type="text" id="aiAsk" placeholder="Ex.: deixar mais curto e mais simpático" maxlength="200">
+          </label>
+          <label class="f" for="aiCode">Senha de acesso (a que você definiu na Vercel)
+            <input type="password" id="aiCode" autocomplete="off">
+          </label>
+          <div class="actions">
+            <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
+            <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
+          </div>
+          <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave do Gemini fica guardada no servidor.</p>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px">Variáveis da planilha</div>
+          <div class="chips" id="chips"></div>
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px" id="prevLabel">Prévia</div>
+          <div class="bubble" id="preview"></div>
+          <div class="actions" style="margin-top:8px"><button class="btn sm" id="reroll" type="button">Sortear outra versão</button></div>
+        </div>
+        <label class="f" for="dest">Abrir em
+          <select id="dest">
+            <option value="api">api.whatsapp.com (abre o WhatsApp Web ou o app)</option>
+            <option value="web">web.whatsapp.com (direto no WhatsApp Web)</option>
+          </select>
+        </label>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-labelledby="h-fila">
+        <div class="card-head"><span class="step">3</span><h2 id="h-fila">Fila de envio</h2></div>
+        <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+        <div class="stats">
+          <span><b id="sentN">0</b> enviados de <b id="totN">0</b></span>
+          <span id="leftN"></span>
+        </div>
+        <div class="timing">
+          <div class="label">Pausa aleatória entre conversas</div>
+          <div class="row2">
+            <label class="f" for="minS">Mínimo (segundos)<input type="number" id="minS" min="0" max="3600" value="30"></label>
+            <label class="f" for="maxS">Máximo (segundos)<input type="number" id="maxS" min="0" max="3600" value="120"></label>
+          </div>
+          <label class="chk" for="beep"><input type="checkbox" id="beep" checked> Tocar um aviso quando a próxima conversa for liberada</label>
+        </div>
+        <div id="next"></div>
+        <div class="tabs" id="tabs" role="group" aria-label="Filtrar lista">
+          <button class="tab" type="button" data-f="todos" aria-pressed="true">Todos</button>
+          <button class="tab" type="button" data-f="pendente" aria-pressed="false">Pendentes</button>
+          <button class="tab" type="button" data-f="enviado" aria-pressed="false">Enviados</button>
+          <button class="tab" type="button" data-f="invalido" aria-pressed="false">Inválidos</button>
+        </div>
+        <div class="list" id="list"></div>
+        <div class="actions">
+          <button class="btn sm" id="copyLinks" type="button">Copiar links gerados</button>
+          <button class="btn sm" id="resetSent" type="button">Zerar enviados</button>
+        </div>
+        <textarea id="copyOut" class="mono-in" readonly aria-label="Links gerados"></textarea>
+        <div id="msgline" role="status" aria-live="polite"></div>
+        <p class="note">O WhatsApp pode restringir números que mandam muitas mensagens iguais para quem não os tem salvos. Envie em lotes pequenos e com pausas entre as conversas.</p>
+      </section>
+    </div>
+  </div>
+  </div>
+
+  <div id="viewLead" hidden>
+    <div class="grid">
+      <div class="col">
+        <section class="card" aria-labelledby="h-lead">
+          <div class="card-head"><span class="step">1</span><h2 id="h-lead">Colar o lead</h2></div>
+          <label class="f" for="leadRaw">Cole aqui o texto do lead, do jeito que você recebe
+            <textarea id="leadRaw" class="mono-in" rows="10" placeholder="Nome: ...&#10;Contato: ...&#10;Data de Agendamento da Visita: ..."></textarea>
+          </label>
+          <div class="actions">
+            <button class="btn primary" id="leadRead" type="button">Ler lead e gerar mensagem</button>
+            <button class="btn" id="leadClear" type="button">Limpar</button>
+          </div>
+          <p class="note" id="leadNote" role="status" aria-live="polite"></p>
+        </section>
+        <section class="card" aria-labelledby="h-perfil">
+          <div class="card-head"><span class="step">2</span><h2 id="h-perfil">Perfil identificado</h2></div>
+          <div class="row2" id="leadFields"></div>
+          <p class="note">Confira os campos e corrija se precisar. Os que estiverem vazios (ou como "não informado") ficam fora da mensagem.</p>
+        </section>
+      </div>
+      <div class="col">
+        <section class="card" aria-labelledby="h-leadmsg">
+          <div class="card-head"><span class="step">3</span><h2 id="h-leadmsg">Mensagem personalizada</h2></div>
+          <p class="note">Usa uma das versões do texto padrão (aba Disparo em massa) e acrescenta o perfil do cliente. Você pode editar o texto abaixo antes de enviar.</p>
+          <textarea id="leadMsg" aria-label="Mensagem gerada"></textarea>
+          <div class="mono num" id="leadWho"></div>
+          <div class="actions">
+            <a class="btn primary big" id="leadOpen" href="#" target="_blank" rel="noopener" aria-disabled="true">Abrir conversa no WhatsApp</a>
+            <button class="btn" id="leadCopy" type="button">Copiar mensagem</button>
+            <button class="btn" id="leadReroll" type="button">Gerar outra versão</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+
+  /* ---------- tema (claro/noturno) ---------- */
+  var root = document.documentElement;
+  try { var th = localStorage.getItem('disparador-theme'); if (th === 'dark' || th === 'light') root.setAttribute('data-theme', th); } catch (e) {}
+  function effTheme() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function paintTheme() {
+    var d = effTheme() === 'dark', b = $('#theme');
+    b.textContent = d ? '☀️ Modo claro' : '🌙 Modo noturno';
+    b.setAttribute('aria-pressed', String(d));
+  }
+  $('#theme').addEventListener('click', function () {
+    var n = effTheme() === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', n);
+    try { localStorage.setItem('disparador-theme', n); } catch (e) {}
+    paintTheme();
+  });
+  paintTheme();
+
+  var S = { headers: [], rows: [], phoneCol: 0, nameCol: -1, status: [], filter: 'todos', example: true, msgs: {}, until: 0 };
+
+  function norm(h) {
+    return String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  }
+  function normalizePhone(raw) {
+    var s = String(raw == null ? '' : raw);
+    var m = s.match(/[?&]phone=(\d+)/i) || s.match(/wa\.me\/(\d+)/i);
+    var d = m ? m[1] : s.replace(/\D/g, '');
+    if (d.length === 10 || d.length === 11) d = '55' + d;
+    return d;
+  }
+  function isValid(d) { return d.length >= 12 && d.length <= 15; }
+  function fmtPhone(d) {
+    if (d.indexOf('55') === 0 && (d.length === 12 || d.length === 13)) {
+      return '+55 ' + d.slice(2, 4) + ' ' + d.slice(4, d.length - 4) + '-' + d.slice(-4);
+    }
+    return '+' + d;
+  }
+  function say(t) { $('#msgline').textContent = t; }
+
+  var LOW = { de: 1, da: 1, do: 1, das: 1, dos: 1, e: 1, di: 1, du: 1 };
+  function properName(str) {
+    return String(str == null ? '' : str).trim().toLowerCase().split(/\s+/).filter(Boolean).map(function (w, i) {
+      if (i > 0 && LOW[w]) return w;
+      return w.replace(/(^|[-'’])([a-zà-ÿ])/g, function (m, p, c) { return p + c.toUpperCase(); });
+    }).join(' ');
+  }
+  function items() {
+    return S.rows.map(function (r, i) {
+      var phone = normalizePhone(r[S.phoneCol]);
+      var name = S.nameCol >= 0 ? properName(r[S.nameCol]) : '';
+      return { i: i, r: r, phone: phone, valid: isValid(phone), name: name, status: S.status[i] || 'pendente' };
+    });
+  }
+  function vars(it) {
+    var hr = new Date().getHours();
+    var v = { nome: it.name, primeiro_nome: it.name.split(/\s+/)[0] || '', saudacao: hr < 12 ? 'Bom dia' : (hr < 18 ? 'Boa tarde' : 'Boa noite') };
+    S.headers.forEach(function (h, c) {
+      var k = norm(h);
+      if (k && !(k in v)) v[k] = String(it.r[c] == null ? '' : it.r[c]);
+    });
+    return v;
+  }
+  function build(it) {
+    var variants = $('#tpl').value.split(/^[ \t]*---[ \t]*$/m).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!variants.length) return '';
+    var t = variants[Math.floor(Math.random() * variants.length)];
+    var v = vars(it);
+    t = t.replace(/\{([^{}|]+)\}/g, function (m, k) { var key = norm(k); return key in v ? v[key] : m; });
+    return t.replace(/\{([^{}]*\|[^{}]*)\}/g, function (m, k) { var o = k.split('|'); return o[Math.floor(Math.random() * o.length)].trim(); });
+  }
+  /* A mensagem sorteada fica guardada por contato, para a prévia e o link serem sempre iguais. */
+  function msg(it) {
+    if (S.msgs[it.i] == null) S.msgs[it.i] = build(it);
+    return S.msgs[it.i];
+  }
+  function link(it) {
+    var base = $('#dest').value === 'web' ? 'https://web.whatsapp.com/send' : 'https://api.whatsapp.com/send';
+    return base + '?phone=' + it.phone + '&text=' + encodeURIComponent(msg(it));
+  }
+
+  /* ---------- leitura de dados ---------- */
+  function parseText(t) {
+    var lines = t.split(/\r?\n/).filter(function (l) { return l.trim(); });
+    if (!lines.length) return [];
+    var first = lines[0], d = null;
+    if (first.indexOf('\t') >= 0) d = '\t';
+    else {
+      var best = [';', ','].map(function (x) { return [x, first.split(x).length]; }).sort(function (a, b) { return b[1] - a[1]; })[0];
+      if (best[1] > 1) d = best[0];
+    }
+    return lines.map(function (l) {
+      return d ? l.split(d).map(function (x) { return x.trim().replace(/^"|"$/g, ''); }) : [l.trim()];
+    });
+  }
+  function sheetToRows(ws) {
+    var ref = ws['!ref'];
+    if (!ref) return { rows: [], linkCol: -1 };
+    var rg = XLSX.utils.decode_range(ref);
+    var w = rg.e.c - rg.s.c + 1, rows = [], anyLink = false;
+    for (var r = rg.s.r; r <= rg.e.r; r++) {
+      var row = [], lk = '';
+      for (var c = rg.s.c; c <= rg.e.c; c++) {
+        var cell = ws[XLSX.utils.encode_cell({ r: r, c: c })];
+        if (!cell) { row.push(''); continue; }
+        var t = (cell.t === 'n' && Number.isInteger(cell.v)) ? String(cell.v) : (cell.w != null ? cell.w : (cell.v != null ? cell.v : ''));
+        var target = cell.l && cell.l.Target ? cell.l.Target : '';
+        if (!target && cell.f) { var m = String(cell.f).match(/HYPERLINK\(\s*"([^"]+)"/i); if (m) target = m[1]; }
+        if (target && !lk && /phone=|wa\.me/i.test(target)) lk = target;
+        row.push(String(t));
+      }
+      row.push(lk);
+      if (lk) anyLink = true;
+      rows.push(row);
+    }
+    if (!anyLink) { rows.forEach(function (x) { x.pop(); }); return { rows: rows, linkCol: -1 }; }
+    return { rows: rows, linkCol: w };
+  }
+  function ingest(rows, linkCol) {
+    rows = rows.filter(function (r) { return r.some(function (c) { return String(c).trim() !== ''; }); });
+    if (!rows.length) { say('Não encontrei linhas nessa planilha.'); return; }
+    var width = Math.max.apply(null, rows.map(function (r) { return r.length; }));
+    rows = rows.map(function (r) { var a = r.slice(); while (a.length < width) a.push(''); return a; });
+    var hasPhone = rows[0].some(function (c) { return isValid(normalizePhone(c)); });
+    var headers;
+    if (hasPhone) {
+      headers = rows[0].map(function (_, i) { return 'Coluna ' + (i + 1); });
+    } else {
+      headers = rows[0].map(function (h, i) { return String(h).trim() || 'Coluna ' + (i + 1); });
+      rows = rows.slice(1);
+    }
+    if (linkCol >= 0 && /^Coluna \d+$/.test(headers[linkCol])) headers[linkCol] = 'Link';
+
+    var best = 0, bestScore = -1;
+    headers.forEach(function (_, c) {
+      var sc = rows.reduce(function (n, r) { return n + (isValid(normalizePhone(r[c])) ? 1 : 0); }, 0);
+      if (sc > bestScore) { bestScore = sc; best = c; }
+    });
+    var nameCol = -1;
+    headers.forEach(function (h, c) { if (nameCol < 0 && c !== best && /nome|name|cliente|contato/i.test(h)) nameCol = c; });
+    if (nameCol < 0) {
+      headers.forEach(function (h, c) {
+        if (nameCol >= 0 || c === best) return;
+        var textual = rows.filter(function (r) { var v = String(r[c]); return /[A-Za-zÀ-ÿ]/.test(v) && !/https?:/i.test(v); }).length;
+        if (rows.length && textual / rows.length > 0.5) nameCol = c;
+      });
+    }
+    S.headers = headers; S.rows = rows; S.phoneCol = best; S.nameCol = nameCol;
+    S.status = []; S.example = false; S.filter = 'todos'; S.msgs = {}; S.until = 0;
+    renderAll();
+    say('Planilha carregada: ' + rows.length + ' linhas.');
+  }
+  function handleFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    if (/\.(csv|txt)$/i.test(file.name)) {
+      reader.onload = function () { ingest(parseText(String(reader.result)), -1); };
+      reader.readAsText(file);
+    } else {
+      if (!window.XLSX) { say('Não consegui carregar o leitor de Excel. Cole as linhas da planilha na caixa de texto.'); return; }
+      reader.onload = function () {
+        try {
+          var wb = XLSX.read(reader.result, { type: 'array', cellFormula: true });
+          var res = sheetToRows(wb.Sheets[wb.SheetNames[0]]);
+          ingest(res.rows, res.linkCol);
+        } catch (e) { say('Não consegui ler esse arquivo. Tente salvar como .csv ou colar as linhas.'); }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  }
+
+  /* ---------- renderização ---------- */
+  function renderSetup() {
+    var opts = S.headers.map(function (h, c) { return '<option value="' + c + '">' + esc(h) + '</option>'; }).join('');
+    $('#phoneCol').innerHTML = opts;
+    $('#phoneCol').value = String(S.phoneCol);
+    $('#nameCol').innerHTML = '<option value="-1">(sem nome)</option>' + opts;
+    $('#nameCol').value = String(S.nameCol);
+    $('#exampleFlag').hidden = !S.example;
+    var keys = ['nome', 'primeiro_nome', 'saudacao'];
+    S.headers.forEach(function (h) { var k = norm(h); if (k && keys.indexOf(k) < 0) keys.push(k); });
+    $('#chips').innerHTML = keys.map(function (k) { return '<button type="button" class="chip" data-k="' + esc(k) + '">{' + esc(k) + '}</button>'; }).join('');
+  }
+  function previewItem() {
+    var its = items();
+    return its.filter(function (x) { return x.valid && x.status === 'pendente'; })[0] || its.filter(function (x) { return x.valid; })[0] || its[0];
+  }
+  function renderPreview() {
+    $('#verCount').textContent = variantsOf($('#tpl').value).length;
+    var it = previewItem();
+    if (!it) { $('#preview').textContent = ''; return; }
+    $('#prevLabel').textContent = 'Prévia para ' + (it.name || fmtPhone(it.phone));
+    $('#preview').textContent = msg(it);
+  }
+  function renderQueue() {
+    var its = items();
+    var valid = its.filter(function (x) { return x.valid; });
+    var sent = valid.filter(function (x) { return x.status === 'enviado'; }).length;
+    var invalid = its.length - valid.length;
+    $('#sentN').textContent = sent;
+    $('#totN').textContent = valid.length;
+    $('#leftN').textContent = (valid.length - sent) + ' pendentes' + (invalid ? ' · ' + invalid + ' inválidos' : '');
+    $('#bar').style.width = (valid.length ? Math.round(sent / valid.length * 100) : 0) + '%';
+    $('#summary').textContent = S.rows.length + ' contatos lidos' + (invalid ? ', ' + invalid + ' sem telefone válido.' : '.');
+
+    var nx = valid.filter(function (x) { return x.status === 'pendente'; })[0];
+    if (nx) {
+      $('#next').innerHTML =
+        '<div class="next"><div class="next-who"><span class="label">Próximo da fila</span><strong>' + esc(nx.name || fmtPhone(nx.phone)) +
+        '</strong><span class="mono num">' + esc(fmtPhone(nx.phone)) + '</span></div>' +
+        '<div class="bubble">' + esc(msg(nx)) + '</div>' +
+        '<div class="cd" id="cd"><span id="cdText"></span><span class="time" id="cdTime"></span></div>' +
+        '<div class="actions"><a class="btn primary big" data-open="' + nx.i + '" href="' + esc(link(nx)) + '" target="_blank" rel="noopener">Abrir conversa e marcar como enviada</a>' +
+        '<button class="btn" type="button" data-skip="' + nx.i + '">Pular</button>' +
+        '<button class="btn" type="button" id="release" data-release hidden>Liberar agora</button></div></div>';
+    } else {
+      $('#next').innerHTML = valid.length
+        ? '<div class="next"><strong>Fila concluída.</strong><p class="note">Todos os contatos válidos foram marcados como enviados.</p></div>'
+        : '<div class="next"><strong>Nenhum telefone válido encontrado.</strong><p class="note">Confira a coluna do telefone ao lado.</p></div>';
+    }
+
+    var shown = its.filter(function (x) {
+      if (S.filter === 'todos') return true;
+      if (S.filter === 'invalido') return !x.valid;
+      return x.valid && x.status === S.filter;
+    });
+    $('#list').innerHTML = shown.length ? shown.map(function (x) {
+      var cls = !x.valid ? 'invalido' : x.status;
+      var acts = '';
+      if (x.valid) {
+        acts = '<a class="btn sm" data-open="' + x.i + '" href="' + esc(link(x)) + '" target="_blank" rel="noopener">Abrir</a>' +
+          '<button class="btn sm" type="button" data-toggle="' + x.i + '">' + (x.status === 'enviado' ? 'Desfazer' : 'Marcar') + '</button>';
+      }
+      return '<div class="item ' + cls + '"><span class="dot"></span><div style="min-width:0"><div class="nm">' + esc(x.name || '(sem nome)') +
+        '</div><div class="num mono">' + (x.valid ? esc(fmtPhone(x.phone)) : '<span class="bad">Telefone inválido: ' + esc(String(x.r[S.phoneCol]).slice(0, 40)) + '</span>') +
+        '</div></div><div class="acts">' + acts + '</div></div>';
+    }).join('') : '<div class="empty">Nenhum contato neste filtro.</div>';
+
+    document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-pressed', String(t.dataset.f === S.filter)); });
+    renderPreview();
+    applyCool();
+  }
+  function renderAll() { renderSetup(); renderPreview(); renderQueue(); }
+
+  /* ---------- pausa aleatória entre conversas ---------- */
+  var tickId = null;
+  function fmtTime(ms) {
+    var s = Math.ceil(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  function beep() {
+    if (!$('#beep').checked) return;
+    try {
+      var C = window.AudioContext || window.webkitAudioContext;
+      var ctx = new C(), o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.08;
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); o.stop(ctx.currentTime + 0.18);
+    } catch (e) {}
+  }
+  function applyCool() {
+    var left = S.until - Date.now();
+    var waiting = left > 0;
+    document.querySelectorAll('a[data-open]').forEach(function (a) { a.setAttribute('aria-disabled', waiting ? 'true' : 'false'); });
+    var cd = $('#cd');
+    if (cd) {
+      cd.classList.toggle('ready', !waiting);
+      $('#cdText').textContent = waiting ? 'Próxima conversa libera em' : 'Liberado para abrir a próxima conversa.';
+      $('#cdTime').textContent = waiting ? fmtTime(left) : '';
+      var rb = $('#release');
+      if (rb) rb.hidden = !waiting;
+    }
+    if (!waiting && tickId) { clearInterval(tickId); tickId = null; beep(); }
+  }
+  function startCool() {
+    var mn = Math.max(0, +$('#minS').value || 0), mx = Math.max(0, +$('#maxS').value || 0);
+    if (mx < mn) { var t = mn; mn = mx; mx = t; }
+    var sec = Math.round(mn + Math.random() * (mx - mn));
+    S.until = Date.now() + sec * 1000;
+    if (tickId) { clearInterval(tickId); tickId = null; }
+    if (sec > 0) tickId = setInterval(applyCool, 250);
+    applyCool();
+  }
+
+  /* ---------- eventos ---------- */
+  $('#file').addEventListener('change', function (e) { handleFile(e.target.files[0]); e.target.value = ''; });
+  var drop = $('#drop');
+  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+  drop.addEventListener('drop', function (e) { handleFile(e.dataTransfer.files[0]); });
+  $('#loadPaste').addEventListener('click', function () {
+    var rows = parseText($('#paste').value);
+    if (!rows.length) { say('Cole as linhas da planilha na caixa de texto primeiro.'); return; }
+    ingest(rows, -1);
+  });
+  $('#phoneCol').addEventListener('change', function (e) { S.phoneCol = +e.target.value; renderAll(); });
+  $('#nameCol').addEventListener('change', function (e) { S.nameCol = +e.target.value; S.msgs = {}; renderAll(); });
+  $('#tpl').addEventListener('input', function () {
+    S.msgs = {};
+    renderPreview(); renderQueue();
+    try { localStorage.setItem('disparador-tpl-v4', $('#tpl').value); } catch (e) {}
+  });
+  $('#reroll').addEventListener('click', function () {
+    var it = previewItem(); if (!it) return;
+    delete S.msgs[it.i];
+    renderQueue();
+  });
+  $('#dest').addEventListener('change', renderQueue);
+  $('#chips').addEventListener('click', function (e) {
+    var b = e.target.closest('.chip'); if (!b) return;
+    var ta = $('#tpl'), tag = '{' + b.dataset.k + '}';
+    var s = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+    var en = ta.selectionEnd == null ? s : ta.selectionEnd;
+    ta.value = ta.value.slice(0, s) + tag + ta.value.slice(en);
+    ta.focus(); ta.setSelectionRange(s + tag.length, s + tag.length);
+    S.msgs = {};
+    renderPreview(); renderQueue();
+  });
+  $('#tabs').addEventListener('click', function (e) {
+    var t = e.target.closest('.tab'); if (!t) return;
+    S.filter = t.dataset.f; renderQueue();
+  });
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-open]');
+    if (a) {
+      if (S.until - Date.now() > 0) { e.preventDefault(); say('Aguarde o fim da pausa para abrir a próxima conversa.'); return; }
+      var i = +a.dataset.open;
+      startCool();
+      setTimeout(function () { S.status[i] = 'enviado'; renderQueue(); }, 300);
+      return;
+    }
+    if (e.target.closest('[data-release]')) {
+      if (tickId) { clearInterval(tickId); tickId = null; }
+      S.until = 0; applyCool(); return;
+    }
+    var sk = e.target.closest('[data-skip]');
+    if (sk) { S.status[+sk.dataset.skip] = 'pulado'; renderQueue(); return; }
+    var tg = e.target.closest('[data-toggle]');
+    if (tg) { var j = +tg.dataset.toggle; S.status[j] = S.status[j] === 'enviado' ? 'pendente' : 'enviado'; renderQueue(); }
+  });
+  $('#resetSent').addEventListener('click', function () { S.status = []; renderQueue(); say('Todos voltaram para pendente.'); });
+  $('#copyLinks').addEventListener('click', function () {
+    var text = items().filter(function (x) { return x.valid; }).map(function (x) { return (x.name || x.phone) + '\t' + link(x); }).join('\n');
+    var out = $('#copyOut');
+    function fallback() { out.value = text; out.classList.add('show'); out.focus(); out.select(); say('Seu navegador bloqueou a cópia automática. Os links estão na caixa abaixo, já selecionados.'); }
+    try {
+      navigator.clipboard.writeText(text).then(function () { out.classList.remove('show'); say('Links copiados. Cole em uma coluna da planilha.'); }, fallback);
+    } catch (e) { fallback(); }
+  });
+
+  /* ---------- variações com IA (Gemini via /api/gerar) ---------- */
+  var aiBackup = null;
+  function variantsOf(t) { return t.split(/^[ \t]*---[ \t]*$/m).map(function (s) { return s.trim(); }).filter(Boolean); }
+  function aiSay(t) { $('#aiNote').textContent = t; }
+  /* A chave do Gemini fica só no servidor (variável de ambiente da Vercel). Aqui o navegador chama /api/gerar. */
+  function aiCall(n, tone, ex, src, ask) {
+    var code = $('#aiCode').value;
+    try { localStorage.setItem('disparador-aicode', code); } catch (e) {}
+    var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 60000);
+    return fetch('/api/gerar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ n: n, tone: tone, examples: ex, source: src, ask: ask, code: code }), signal: ctl.signal
+    }).then(function (r) {
+      clearTimeout(tm);
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error(j.error || ('Erro ' + r.status + ' no servidor.')); e.status = r.status; throw e; }
+        return j.text;
+      });
+    }, function (e) { clearTimeout(tm); throw e; });
+  }
+  function amountsIn(texts) {
+    var sets = texts.map(function (t) { return (String(t).match(/R\$\s*[\d.,]+/g) || []).map(function (a) { return a.replace(/\s+/g, '').replace(/[.,]+$/, ''); }); });
+    return (sets[0] || []).filter(function (a) { return sets.every(function (st) { return st.indexOf(a) >= 0; }); });
+  }
+  function aiClean(raw, amts) {
+    var allowed = { nome: 1, primeiro_nome: 1, saudacao: 1 };
+    S.headers.forEach(function (h) { var k = norm(h); if (k) allowed[k] = 1; });
+    var have = {};
+    variantsOf($('#tpl').value).forEach(function (v) { have[v.toLowerCase().replace(/\s+/g, ' ')] = 1; });
+    var txt = String(raw || '').replace(/```[a-z]*\n?/gi, '').replace(/\*\*/g, '').replace(/\r/g, '');
+    var ok = [], dropped = 0;
+    variantsOf(txt).forEach(function (v) {
+      v = v.replace(/^\s*(?:(?:vers[ãa]o|op[çc][ãa]o)\s*)?\d+\s*[:.)-]\s*/i, '').trim();
+      var open = (v.match(/\{/g) || []).length, close = (v.match(/\}/g) || []).length;
+      var badVar = false;
+      v.replace(/\{([^{}|]+)\}/g, function (m, k) { if (!(norm(k) in allowed)) badVar = true; return m; });
+      var key = v.toLowerCase().replace(/\s+/g, ' ');
+      if (v.length < 40 || v.length > 700 || open !== close || badVar || !/\{primeiro_nome\}/.test(v) || amts.some(function (a) { return v.replace(/\s+/g, '').indexOf(a) < 0; }) || have[key]) { dropped++; return; }
+      have[key] = 1; ok.push(v);
+    });
+    return { ok: ok, dropped: dropped };
+  }
+  $('#aiGen').addEventListener('click', function () {
+    var btn = this, n = Math.min(15, Math.max(1, +$('#aiN').value || 6));
+    btn.disabled = true; btn.textContent = 'Gerando…';
+    aiSay('Pedindo ' + n + ' versões à IA. Costuma levar de 10 a 40 segundos.');
+    var src = $('#aiSrc').value.trim(), ask = $('#aiAsk').value.trim();
+    var ex = variantsOf($('#tpl').value).sort(function () { return Math.random() - 0.5; }).slice(0, 3);
+    var amts = amountsIn(src ? [src] : ex);
+    aiCall(n, $('#aiTone').value, ex, src, ask).then(function (raw) {
+      var res = aiClean(raw, amts);
+      if (!res.ok.length) { aiSay('A IA respondeu, mas nenhuma versão passou na checagem (precisa ter {primeiro_nome} e manter os valores do texto base). Tente de novo.'); return; }
+      aiBackup = $('#tpl').value;
+      $('#tpl').value = aiBackup.replace(/\s+$/, '') + '\n---\n' + res.ok.join('\n---\n');
+      $('#tpl').dispatchEvent(new Event('input'));
+      $('#aiUndo').hidden = false;
+      aiSay(res.ok.length + ' versões novas no fim do texto' + (res.dropped ? ' (' + res.dropped + ' descartadas por erro de formato)' : '') + '. Leia antes de usar.');
+    }).catch(function (e) {
+      aiSay(e && e.status ? e.message : 'Não consegui falar com o servidor. Confira a conexão e tente de novo; as versões prontas continuam funcionando.');
+    }).then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA'; });
+  });
+  $('#aiUndo').addEventListener('click', function () {
+    if (aiBackup == null) return;
+    $('#tpl').value = aiBackup; aiBackup = null; this.hidden = true;
+    $('#tpl').dispatchEvent(new Event('input'));
+    aiSay('Última geração desfeita.');
+  });
+  try { $('#aiCode').value = localStorage.getItem('disparador-aicode') || ''; } catch (e) {}
+
+  /* ---------- lead individual ---------- */
+  var LK = [['nome', 'Nome'], ['contato', 'Contato'], ['visita', 'Visita (data e hora)'], ['renda', 'Renda mensal'], ['fin', 'Financiamento simulado'], ['sub', 'Subsídio simulado'], ['emp', 'Empreendimento'], ['cidade', 'Cidade de interesse'], ['bairro', 'Bairro de interesse'], ['classif', 'Classificação']];
+  var L = {};
+  $('#leadFields').innerHTML = LK.map(function (k) { return '<label class="f" for="lf-' + k[0] + '">' + k[1] + '<input type="text" id="lf-' + k[0] + '" data-lk="' + k[0] + '"></label>'; }).join('');
+  function leadNote(t) { $('#leadNote').textContent = t; }
+  function emptyVal(v) { return !v || /^(n[aã]o\s+informad|n\/?a$|nenhum|null|undefined|[-—–]+$)/i.test(v.trim()); }
+  function parseLead(txt) {
+    var o = {};
+    txt.split(/\r?\n/).forEach(function (line) {
+      var l = line.replace(/^[^A-Za-zÀ-ÿ0-9*]+/, '');
+      var m = l.match(/^([^:]{2,60}):\s*(.*)$/); if (!m) return;
+      var k = norm(m[1]), v = m[2].replace(/\*\*/g, '').trim();
+      var f = /^nome/.test(k) ? 'nome' : /^(contato|telefone|celular|whatsapp)/.test(k) ? 'contato' : /visita/.test(k) ? 'visita' : /^renda/.test(k) ? 'renda' : /^financiamento/.test(k) ? 'fin' : /^subsidio/.test(k) ? 'sub' : /^empreendimento/.test(k) ? 'emp' : /^cidade/.test(k) ? 'cidade' : /^bairro/.test(k) ? 'bairro' : /^classificacao/.test(k) ? 'classif' : '';
+      if (!f || (f in o)) return;
+      if (f === 'classif') v = v.split(/\s+[—–-]\s+/)[0];
+      o[f] = emptyVal(v) ? '' : v;
+    });
+    return o;
+  }
+  function parseNum(v) {
+    var s = String(v || '').replace(/[^\d.,-]/g, ''); if (!s) return NaN;
+    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s) || s.indexOf(',') >= 0) s = s.replace(/\./g, '').replace(',', '.');
+    return parseFloat(s);
+  }
+  function money(v) { var n = parseNum(v); return isNaN(n) ? '' : 'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function spin(t) { return t.replace(/\{([^{}]*\|[^{}]*)\}/g, function (m, k) { var o = k.split('|'); return o[Math.floor(Math.random() * o.length)].trim(); }); }
+  function leadProfile() {
+    var s = [];
+    var dm = (L.visita || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (dm) {
+      var dt = new Date(+dm[3], +dm[2] - 1, +dm[1], +(dm[4] || 0), +(dm[5] || 0));
+      var when = dm[1].padStart(2, '0') + '/' + dm[2].padStart(2, '0') + (dm[4] ? ' às ' + dm[4] + 'h' + (dm[5] && dm[5] !== '00' ? dm[5] : '') : '');
+      s.push((dt < new Date() ? '{Vi que você tinha agendado|Consta aqui que você havia marcado|Vi aqui que você chegou a agendar}' : '{Vi que você agendou|Consta aqui que você marcou|Vi aqui que você agendou}') + ' uma visita para ' + when + '.');
+    }
+    var place = L.emp ? 'no empreendimento ' + L.emp : (L.bairro && L.cidade ? 'na região de ' + L.bairro + ', ' + L.cidade : L.bairro ? 'na região de ' + L.bairro : L.cidade ? 'em ' + L.cidade : '');
+    if (place) s.push('{Você demonstrou interesse|Você manifestou interesse|Seu interesse é} ' + place + '.');
+    var fin = money(L.fin), sub = money(L.sub);
+    if (fin) {
+      s.push('{Na sua simulação|Pela simulação feita|Na simulação que fizemos}, o financiamento {ficou em torno de|deu aproximadamente|ficou próximo de} ' + fin + (sub ? ' e o subsídio em ' + sub : '') + '.');
+      if (!isNaN(parseNum(L.renda))) s.push('Pelo que vi, seu perfil {parece compatível com|se encaixa no} financiamento.');
+    }
+    return s.join(' ');
+  }
+  function paintLead() {
+    var ph = normalizePhone(L.contato), ok = isValid(ph), a = $('#leadOpen');
+    var base = $('#dest').value === 'web' ? 'https://web.whatsapp.com/send' : 'https://api.whatsapp.com/send';
+    a.href = ok ? base + '?phone=' + ph + '&text=' + encodeURIComponent($('#leadMsg').value) : '#';
+    a.setAttribute('aria-disabled', ok ? 'false' : 'true');
+    $('#leadWho').textContent = ok ? 'Para: ' + fmtPhone(ph) : 'Telefone não identificado. Corrija o campo Contato.';
+  }
+  function genLead() {
+    var vs = $('#tpl').value.split(/^[ \t]*---[ \t]*$/m).map(function (x) { return x.trim(); }).filter(Boolean);
+    var base = vs.length ? vs[Math.floor(Math.random() * vs.length)] : '{Olá|Oi}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.\n\nVocê ainda tem interesse em adquirir seu imóvel?';
+    var nm = properName(L.nome), hr = new Date().getHours();
+    var v = { nome: nm, primeiro_nome: nm.split(/\s+/)[0] || '', saudacao: hr < 12 ? 'Bom dia' : (hr < 18 ? 'Boa tarde' : 'Boa noite'), empreendimento: L.emp || '', cidade: L.cidade || '', bairro: L.bairro || '' };
+    base = base.replace(/\{([^{}|]+)\}/g, function (m, k) { var key = norm(k); return key in v ? v[key] : m; });
+    var paras = base.split(/\n\s*\n/), prof = leadProfile();
+    if (prof) paras.splice(Math.min(1, paras.length), 0, prof);
+    $('#leadMsg').value = spin(paras.join('\n\n'));
+    paintLead();
+  }
+  $('#leadRead').addEventListener('click', function () {
+    var raw = $('#leadRaw').value;
+    if (!raw.trim()) { leadNote('Cole o texto do lead primeiro.'); return; }
+    L = parseLead(raw);
+    if (!L.nome && !L.contato) { leadNote('Não achei nome nem contato nesse texto. Confira se ele tem linhas como "Nome: ..." e "Contato: ...".'); return; }
+    L.nome = properName(L.nome);
+    LK.forEach(function (k) { L[k[0]] = L[k[0]] || ''; $('#lf-' + k[0]).value = L[k[0]]; });
+    leadNote('Identifiquei ' + LK.filter(function (k) { return L[k[0]]; }).length + ' de ' + LK.length + ' campos. Confira e ajuste se precisar.');
+    genLead();
+  });
+  $('#leadRaw').addEventListener('paste', function () { setTimeout(function () { $('#leadRead').click(); }, 50); });
+  $('#leadClear').addEventListener('click', function () {
+    L = {}; $('#leadRaw').value = ''; $('#leadMsg').value = '';
+    LK.forEach(function (k) { $('#lf-' + k[0]).value = ''; });
+    leadNote(''); paintLead();
+  });
+  $('#leadFields').addEventListener('change', function (e) {
+    var i = e.target.closest('[data-lk]'); if (!i) return;
+    L[i.dataset.lk] = i.value.trim(); genLead();
+  });
+  $('#leadMsg').addEventListener('input', paintLead);
+  $('#leadReroll').addEventListener('click', function () { if (!L.nome && !L.contato) { leadNote('Cole um lead primeiro.'); return; } genLead(); });
+  $('#leadCopy').addEventListener('click', function () {
+    var o = $('#leadMsg');
+    function fb() { o.focus(); o.select(); leadNote('Selecionei a mensagem. Copie com Ctrl+C.'); }
+    try { navigator.clipboard.writeText(o.value).then(function () { leadNote('Mensagem copiada.'); }, fb); } catch (e) { fb(); }
+  });
+  $('#leadOpen').addEventListener('click', function (e) { if (this.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
+  $('#modes').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-mode]'); if (!b) return;
+    var lead = b.dataset.mode === 'lead';
+    $('#viewMass').hidden = lead; $('#viewLead').hidden = !lead;
+    document.querySelectorAll('[data-mode]').forEach(function (t) { t.setAttribute('aria-pressed', String((t.dataset.mode === 'lead') === lead)); });
+    if (lead) paintLead();
+  });
+  paintLead();
+
+  /* ---------- exemplo inicial ---------- */
+  S.headers = ['Nome', 'Telefone'];
+  S.rows = [
+    ['Maria Souza', '(92) 99999-0001'],
+    ['João Pereira', '5592999990002'],
+    ['Ana Lima', 'https://api.whatsapp.com/send?phone=5592999990003'],
+    ['Contato sem número', '—']
+  ];
+  S.phoneCol = 1; S.nameCol = 0;
+  try { var saved = localStorage.getItem('disparador-tpl-v4'); if (saved) $('#tpl').value = saved; } catch (e) {}
+  renderAll();
+})();
+</script>
+
+</body></html>

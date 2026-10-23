@@ -1,0 +1,9 @@
+{
+  "name": "disparador-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Disparador de WhatsApp com variações de mensagem geradas por IA",
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -52,7 +52,7 @@ function buildRewritePrompt(tone, source) {
   );
 }
 
-async function callOpenRouter(key, prompt) {
+async function callOpenRouter(key, prompt, maxTokens) {
   const model = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
   const url = 'https://openrouter.ai/api/v1/chat/completions';
   const ctl = new AbortController();
@@ -73,7 +73,9 @@ async function callOpenRouter(key, prompt) {
       body: JSON.stringify({
         model,
         temperature: 1.0,
-        max_tokens: 4096,
+        max_tokens: maxTokens || 1500,
+        // Pede pouco "raciocínio" (modelos que não suportam ignoram o campo). Deixa mais rápido.
+        reasoning: { effort: 'low' },
         messages: [
           { role: 'system', content: SYSTEM },
           { role: 'user', content: prompt },
@@ -130,8 +132,9 @@ module.exports = async (req, res) => {
   const tone = TONES.includes(body.tone) ? body.tone : TONES[0];
   const source = typeof body.source === 'string' ? body.source.trim().slice(0, 1500) : '';
 
-  let prompt;
+  let prompt, maxTokens;
   if (body.mode === 'rewrite') {
+    maxTokens = 1200;
     if (!source) return res.status(400).json({ error: 'Não há mensagem para reescrever.' });
     prompt = buildRewritePrompt(tone, source);
   } else {
@@ -144,10 +147,11 @@ module.exports = async (req, res) => {
     if (!examples.length) {
       return res.status(400).json({ error: 'Faltam exemplos de mensagem no texto-modelo.' });
     }
+    maxTokens = Math.min(4096, 600 + n * 280);
     prompt = buildVariationsPrompt(n, tone, examples, source, ask);
   }
 
-  const out = await callOpenRouter(key, prompt);
+  const out = await callOpenRouter(key, prompt, maxTokens);
   if (out.error) return res.status(out.status).json({ error: out.error });
   return res.status(200).json({ text: out.text });
 };

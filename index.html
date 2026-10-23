@@ -828,7 +828,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
   /* A chave do Gemini fica só no servidor (variável de ambiente da Vercel). Aqui o navegador chama /api/gerar. */
   function aiErr(m) { var e = new Error(m); e.status = 1; return e; }
   function aiPost(payload) {
-    var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 60000);
+    var ctl = new AbortController(), tm = setTimeout(function () { ctl.abort(); }, 65000);
     return fetch('/api/gerar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload), signal: ctl.signal

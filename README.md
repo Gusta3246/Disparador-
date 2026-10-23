@@ -1,12 +1,12 @@
 # Disparador de WhatsApp
 
-Site de página única (`index.html`) com uma função no servidor (`api/gerar.js`) que gera variações de mensagem com o Gemini. A chave da IA fica só na Vercel e nunca aparece no navegador nem no GitHub.
+Site de página única (`index.html`) com uma função no servidor (`api/gerar.js`) que gera variações de mensagem com o OpenRouter. A chave da IA fica só na Vercel e nunca aparece no navegador nem no GitHub.
 
 ## Estrutura
 
 ```
 index.html       o app
-api/gerar.js     função que chama o Gemini com a chave secreta
+api/gerar.js     função que chama o OpenRouter com a chave secreta
 vercel.json      tempo máximo da função
 package.json     versão do Node
 .env.example     modelo das variáveis (sem chave real)
@@ -28,7 +28,8 @@ package.json     versão do Node
 
    | Nome | Valor |
    |---|---|
-   | `GEMINI_API_KEY` | a chave do Google AI Studio |
+   | `OPENROUTER_API_KEY` | a chave criada em openrouter.ai/keys |
+   | `OPENROUTER_MODEL` (opcional) | modelo no formato `provedor/modelo` (padrão `google/gemini-2.5-flash`) |
    | `ACCESS_CODE` | uma senha que você inventar (impede que outras pessoas usem sua cota) |
 
 4. Clique em **Deploy**.
@@ -39,14 +40,15 @@ Abra o endereço que a Vercel gerou, vá em **Mais variações com IA**, digite 
 
 ## Problemas comuns
 
-- **"O servidor ainda não tem a chave da IA"**: falta `GEMINI_API_KEY` ou faltou o Redeploy.
+- **"O servidor ainda não tem a chave da IA"**: falta `OPENROUTER_API_KEY` ou faltou o Redeploy.
 - **"Senha de acesso incorreta"**: a senha digitada é diferente de `ACCESS_CODE`.
-- **"O Gemini recusou o pedido"**: a chave está errada ou foi desativada. Gere outra em aistudio.google.com/apikey.
-- **"Modelo do Gemini não encontrado"**: cadastre `GEMINI_MODEL` na Vercel com um modelo listado no AI Studio.
-- **"Limite gratuito da IA atingido"**: espere alguns minutos.
+- **"O OpenRouter recusou a chave"**: a chave está errada ou foi desativada. Gere outra em openrouter.ai/keys.
+- **"Modelo não encontrado"**: cadastre `OPENROUTER_MODEL` na Vercel com um ID válido de openrouter.ai/models.
+- **"Sem créditos no OpenRouter"**: adicione saldo em openrouter.ai/credits ou escolha um modelo gratuito (ID terminado em `:free`).
+- **"Limite de uso da IA atingido"**: espere alguns minutos.
 
 ## Segurança
 
-- Nunca cole a chave em arquivo do projeto, em mensagem ou em print. Se ela vazar, apague e crie outra em aistudio.google.com/apikey.
+- Nunca cole a chave em arquivo do projeto, em mensagem ou em print. Se ela vazar, apague e crie outra em openrouter.ai/keys.
 - O texto da mensagem e a lista de contatos ficam no navegador. Só o texto-modelo vai ao servidor quando você usa a IA.
 - Abrir o `index.html` direto do computador (sem a Vercel) funciona para todo o resto, mas o botão de IA só funciona no site publicado.

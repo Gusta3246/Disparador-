@@ -681,7 +681,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         '<div class="next"><div class="next-who"><span class="label">Próximo da fila</span><strong>' + esc(nx.name || fmtPhone(nx.phone)) +
         '</strong><span class="mono num">' + esc(fmtPhone(nx.phone)) + '</span></div>' +
         '<div class="bubble">' + esc(msg(nx)) + '</div>' +
-        (aiWaiting(nx.i) ? '<p class="note">Reescrevendo esta mensagem com IA… aguarde alguns segundos para abrir a conversa.</p>' : '') +
+        aiStatusHtml(nx.i) +
         '<div class="cd" id="cd"><span id="cdText"></span><span class="time" id="cdTime"></span></div>' +
         '<div class="actions"><a class="btn primary big" data-open="' + nx.i + '" href="' + esc(link(nx)) + '" target="_blank" rel="noopener">Abrir conversa e marcar como enviada</a>' +
         '<button class="btn" type="button" data-ai="' + nx.i + '"' + (aiLoading(nx.i) ? ' disabled' : '') + '>' + (aiLoading(nx.i) ? 'Reescrevendo…' : 'Reescrever com IA') + '</button>' +
@@ -705,7 +705,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         acts = '<a class="btn sm" data-open="' + x.i + '" href="' + esc(link(x)) + '" target="_blank" rel="noopener">Abrir</a>' +
           '<button class="btn sm" type="button" data-toggle="' + x.i + '">' + (x.status === 'enviado' ? 'Desfazer' : 'Marcar') + '</button>';
       }
-      return '<div class="item ' + cls + '"><span class="dot"></span><div style="min-width:0"><div class="nm">' + esc(x.name || '(sem nome)') +
+      return '<div class="item ' + cls + '"><span class="dot"></span><div style="min-width:0"><div class="nm">' + esc(x.name || '(sem nome)') + (S.aiState[x.i] && S.aiState[x.i].s === 'done' ? ' <span class="note" title="Reescrita pela IA">✓ IA</span>' : '') +
         '</div><div class="num mono">' + (x.valid ? esc(fmtPhone(x.phone)) : '<span class="bad">Telefone inválido: ' + esc(String(x.r[S.phoneCol]).slice(0, 40)) + '</span>') +
         '</div></div><div class="acts">' + acts + '</div></div>';
     }).join('') : '<div class="empty">Nenhum contato neste filtro.</div>';
@@ -873,14 +873,34 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     var nx = items().filter(function (x) { return x.valid && x.status === 'pendente'; })[0];
     return !!nx && nx.i === i;
   }
-  var aiTok = 0;
-  /* Reescreve a mensagem do contato i. auto = disparado sozinho (sem clique). */
-  function startAi(i, auto) {
+  function aiStatusHtml(i) {
+    var st = S.aiState[i], box = $('#massAuto');
+    if (aiWaiting(i)) {
+      var extra = st && st.n > 1 ? ' (tentativa ' + st.n + ' de ' + AI_TRIES + (st.wait ? ', aguardando para tentar de novo' : '') + ')' : '';
+      return '<p class="note">Reescrevendo esta mensagem com IA' + extra + '… aguarde para abrir a conversa.</p>';
+    }
+    if (st && st.s === 'done') return '<p class="note">✓ Mensagem reescrita pela IA.' + aheadInfo() + '</p>';
+    if (st && st.s === 'fail') return '<p class="note"><b>A IA não conseguiu reescrever esta mensagem.</b> ' + esc(st.err || '') + ' Está valendo a mensagem padrão; use "Reescrever com IA" para tentar de novo.</p>';
+    return '';
+  }
+  function aheadInfo() {
+    var pend = items().filter(function (x) { return x.valid && x.status === 'pendente'; }).slice(1, 3);
+    if (!pend.length) return '';
+    var ok = pend.filter(function (x) { return S.aiState[x.i] && S.aiState[x.i].s === 'done'; }).length;
+    var run = pend.filter(function (x) { return aiLoading(x.i); }).length;
+    return ' Próximas: ' + ok + ' pronta(s)' + (run ? ', ' + run + ' em andamento' : '') + '.';
+  }
+  var aiTok = 0, AI_TRIES = 3;
+  /* Reescreve a mensagem do contato i. auto = disparado sozinho (sem clique). Tenta até 3 vezes. */
+  function startAi(i, auto, tok, attempt, orig) {
     var it = items().filter(function (x) { return x.i === i; })[0];
-    if (!it || aiLoading(i)) return;
-    var orig = msg(it), tok = ++aiTok;
-    S.aiState[i] = { s: 'loading', t: tok };
-    if (!auto) say('Reescrevendo a mensagem de ' + (it.name || fmtPhone(it.phone)) + ' com IA…');
+    if (!it) return;
+    if (!tok) {
+      if (aiLoading(i)) return;
+      tok = ++aiTok; attempt = 1; orig = msg(it);
+      if (!auto) say('Reescrevendo a mensagem de ' + (it.name || fmtPhone(it.phone)) + ' com IA…');
+    }
+    S.aiState[i] = { s: 'loading', t: tok, n: attempt };
     renderQueue();
     aiRewrite(orig).then(function (t) {
       if (!S.aiState[i] || S.aiState[i].t !== tok) return;
@@ -889,22 +909,32 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       renderQueue();
     }).catch(function (e) {
       if (!S.aiState[i] || S.aiState[i].t !== tok) return;
-      S.aiState[i] = { s: 'fail', t: tok };
-      say(aiFail(e) + (auto ? ' Usei a mensagem padrão para este contato.' : ''));
+      var why = aiFail(e);
+      if (attempt < AI_TRIES) {
+        var wait = (e && e.status === 429 ? 8000 : 2500) * attempt;
+        S.aiState[i] = { s: 'loading', t: tok, n: attempt, wait: true };
+        setTimeout(function () {
+          if (S.aiState[i] && S.aiState[i].t === tok) startAi(i, auto, tok, attempt + 1, orig);
+        }, wait);
+        renderQueue();
+        return;
+      }
+      S.aiState[i] = { s: 'fail', t: tok, err: why };
+      say(why + ' Usei a mensagem padrão para este contato.');
       renderQueue();
     });
   }
   function aiRewriteItem(btn) { startAi(+btn.dataset.ai, false); }
-  /* Reescreve sozinho o próximo da fila (e prepara o seguinte), um de cada vez. */
+  /* Reescreve sozinho o próximo da fila e os 2 seguintes (enquanto a pausa corre), um de cada vez. */
   var autoTimer = null;
   function scheduleAutoAi() {
     clearTimeout(autoTimer);
-    autoTimer = setTimeout(autoAi, 700);
+    autoTimer = setTimeout(autoAi, 400);
   }
   function autoAi() {
     var box = $('#massAuto');
     if (!box || !box.checked || S.example) return;
-    var pend = items().filter(function (x) { return x.valid && x.status === 'pendente'; }).slice(0, 2);
+    var pend = items().filter(function (x) { return x.valid && x.status === 'pendente'; }).slice(0, 3);
     if (pend.some(function (x) { return aiLoading(x.i); })) return;
     var nx = pend.filter(function (x) { return !S.aiState[x.i]; })[0];
     if (nx) startAi(nx.i, true);

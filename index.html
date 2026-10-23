@@ -366,6 +366,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
             <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
             <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
           </div>
+          <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="massAuto" checked> Reescrever automaticamente cada mensagem da fila com IA (começando pela primeira)</label>
           <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave da IA fica guardada no servidor.</p>
         </div>
         <div>
@@ -454,6 +455,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
             <button class="btn" id="leadCopy" type="button">Copiar mensagem</button>
             <button class="btn" id="leadReroll" type="button">Gerar outra versão</button>
           </div>
+          <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="leadAuto" checked> Reescrever com IA automaticamente ao ler o lead</label>
         </section>
       </div>
     </div>
@@ -487,7 +489,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
   });
   paintTheme();
 
-  var S = { headers: [], rows: [], phoneCol: 0, nameCol: -1, status: [], filter: 'todos', example: true, msgs: {}, until: 0 };
+  var S = { headers: [], rows: [], phoneCol: 0, nameCol: -1, status: [], filter: 'todos', example: true, msgs: {}, aiState: {}, until: 0 };
 
   function norm(h) {
     return String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -616,7 +618,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       });
     }
     S.headers = headers; S.rows = rows; S.phoneCol = best; S.nameCol = nameCol;
-    S.status = []; S.example = false; S.filter = 'todos'; S.msgs = {}; S.until = 0;
+    S.status = []; S.example = false; S.filter = 'todos'; S.msgs = {}; S.aiState = {}; S.until = 0;
     renderAll();
     say('Planilha carregada: ' + rows.length + ' linhas.');
   }
@@ -679,9 +681,10 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
         '<div class="next"><div class="next-who"><span class="label">Próximo da fila</span><strong>' + esc(nx.name || fmtPhone(nx.phone)) +
         '</strong><span class="mono num">' + esc(fmtPhone(nx.phone)) + '</span></div>' +
         '<div class="bubble">' + esc(msg(nx)) + '</div>' +
+        (aiWaiting(nx.i) ? '<p class="note">Reescrevendo esta mensagem com IA… aguarde alguns segundos para abrir a conversa.</p>' : '') +
         '<div class="cd" id="cd"><span id="cdText"></span><span class="time" id="cdTime"></span></div>' +
         '<div class="actions"><a class="btn primary big" data-open="' + nx.i + '" href="' + esc(link(nx)) + '" target="_blank" rel="noopener">Abrir conversa e marcar como enviada</a>' +
-        '<button class="btn" type="button" data-ai="' + nx.i + '">Reescrever com IA</button>' +
+        '<button class="btn" type="button" data-ai="' + nx.i + '"' + (aiLoading(nx.i) ? ' disabled' : '') + '>' + (aiLoading(nx.i) ? 'Reescrevendo…' : 'Reescrever com IA') + '</button>' +
         '<button class="btn" type="button" data-skip="' + nx.i + '">Pular</button>' +
         '<button class="btn" type="button" id="release" data-release hidden>Liberar agora</button></div></div>';
     } else {
@@ -710,6 +713,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     document.querySelectorAll('.tab').forEach(function (t) { t.setAttribute('aria-pressed', String(t.dataset.f === S.filter)); });
     renderPreview();
     applyCool();
+    scheduleAutoAi();
   }
   function renderAll() { renderSetup(); renderPreview(); renderQueue(); }
 
@@ -765,15 +769,15 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     ingest(rows, -1);
   });
   $('#phoneCol').addEventListener('change', function (e) { S.phoneCol = +e.target.value; renderAll(); });
-  $('#nameCol').addEventListener('change', function (e) { S.nameCol = +e.target.value; S.msgs = {}; renderAll(); });
+  $('#nameCol').addEventListener('change', function (e) { S.nameCol = +e.target.value; S.msgs = {}; S.aiState = {}; renderAll(); });
   $('#tpl').addEventListener('input', function () {
-    S.msgs = {};
+    S.msgs = {}; S.aiState = {};
     renderPreview(); renderQueue();
     try { localStorage.setItem('disparador-tpl-v4', $('#tpl').value); } catch (e) {}
   });
   $('#reroll').addEventListener('click', function () {
     var it = previewItem(); if (!it) return;
-    delete S.msgs[it.i];
+    delete S.msgs[it.i]; delete S.aiState[it.i];
     renderQueue();
   });
   $('#dest').addEventListener('change', renderQueue);
@@ -784,7 +788,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     var en = ta.selectionEnd == null ? s : ta.selectionEnd;
     ta.value = ta.value.slice(0, s) + tag + ta.value.slice(en);
     ta.focus(); ta.setSelectionRange(s + tag.length, s + tag.length);
-    S.msgs = {};
+    S.msgs = {}; S.aiState = {};
     renderPreview(); renderQueue();
   });
   $('#tabs').addEventListener('click', function (e) {
@@ -796,6 +800,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     if (a) {
       if (S.until - Date.now() > 0) { e.preventDefault(); say('Aguarde o fim da pausa para abrir a próxima conversa.'); return; }
       var i = +a.dataset.open;
+      if (aiWaiting(i)) { e.preventDefault(); say('Aguarde a IA terminar de reescrever esta mensagem (alguns segundos).'); return; }
       startCool();
       setTimeout(function () { S.status[i] = 'enviado'; renderQueue(); }, 300);
       return;
@@ -859,17 +864,50 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       return t;
     });
   }
-  function aiRewriteItem(btn) {
-    var i = +btn.dataset.ai, it = items().filter(function (x) { return x.i === i; })[0];
-    if (!it) return;
-    var orig = msg(it);
-    btn.disabled = true; btn.textContent = 'Reescrevendo…';
-    say('Reescrevendo a mensagem de ' + (it.name || fmtPhone(it.phone)) + ' com IA…');
+  function aiLoading(i) { return !!(S.aiState[i] && S.aiState[i].s === 'loading'); }
+  /* Verdadeiro enquanto a IA reescreve OU está prestes a começar a reescrever o próximo da fila. */
+  function aiWaiting(i) {
+    if (aiLoading(i)) return true;
+    var box = $('#massAuto');
+    if (!box || !box.checked || S.example || S.aiState[i]) return false;
+    var nx = items().filter(function (x) { return x.valid && x.status === 'pendente'; })[0];
+    return !!nx && nx.i === i;
+  }
+  var aiTok = 0;
+  /* Reescreve a mensagem do contato i. auto = disparado sozinho (sem clique). */
+  function startAi(i, auto) {
+    var it = items().filter(function (x) { return x.i === i; })[0];
+    if (!it || aiLoading(i)) return;
+    var orig = msg(it), tok = ++aiTok;
+    S.aiState[i] = { s: 'loading', t: tok };
+    if (!auto) say('Reescrevendo a mensagem de ' + (it.name || fmtPhone(it.phone)) + ' com IA…');
+    renderQueue();
     aiRewrite(orig).then(function (t) {
-      S.msgs[i] = t; renderQueue(); say('Mensagem reescrita. Confira o texto antes de abrir a conversa.');
+      if (!S.aiState[i] || S.aiState[i].t !== tok) return;
+      S.msgs[i] = t; S.aiState[i] = { s: 'done', t: tok };
+      if (!auto) say('Mensagem reescrita. Confira o texto antes de abrir a conversa.');
+      renderQueue();
     }).catch(function (e) {
-      btn.disabled = false; btn.textContent = 'Reescrever com IA'; say(aiFail(e));
+      if (!S.aiState[i] || S.aiState[i].t !== tok) return;
+      S.aiState[i] = { s: 'fail', t: tok };
+      say(aiFail(e) + (auto ? ' Usei a mensagem padrão para este contato.' : ''));
+      renderQueue();
     });
+  }
+  function aiRewriteItem(btn) { startAi(+btn.dataset.ai, false); }
+  /* Reescreve sozinho o próximo da fila (e prepara o seguinte), um de cada vez. */
+  var autoTimer = null;
+  function scheduleAutoAi() {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(autoAi, 700);
+  }
+  function autoAi() {
+    var box = $('#massAuto');
+    if (!box || !box.checked || S.example) return;
+    var pend = items().filter(function (x) { return x.valid && x.status === 'pendente'; }).slice(0, 2);
+    if (pend.some(function (x) { return aiLoading(x.i); })) return;
+    var nx = pend.filter(function (x) { return !S.aiState[x.i]; })[0];
+    if (nx) startAi(nx.i, true);
   }
   function amountsIn(texts) {
     var sets = texts.map(function (t) { return (String(t).match(/R\$\s*[\d.,]+/g) || []).map(function (a) { return a.replace(/\s+/g, '').replace(/[.,]+$/, ''); }); });
@@ -912,6 +950,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       aiSay(aiFail(e));
     }).then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA'; });
   });
+  $('#massAuto').addEventListener('change', scheduleAutoAi);
   $('#aiUndo').addEventListener('click', function () {
     if (aiBackup == null) return;
     $('#tpl').value = aiBackup; aiBackup = null; this.hidden = true;
@@ -989,9 +1028,11 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     LK.forEach(function (k) { L[k[0]] = L[k[0]] || ''; $('#lf-' + k[0]).value = L[k[0]]; });
     leadNote('Identifiquei ' + LK.filter(function (k) { return L[k[0]]; }).length + ' de ' + LK.length + ' campos. Confira e ajuste se precisar.');
     genLead();
+    if ($('#leadAuto').checked) runLeadAi(true);
   });
   $('#leadRaw').addEventListener('paste', function () { setTimeout(function () { $('#leadRead').click(); }, 50); });
   $('#leadClear').addEventListener('click', function () {
+    leadAiSeq++; $('#leadAi').disabled = false; $('#leadAi').textContent = 'Reescrever com IA';
     L = {}; $('#leadRaw').value = ''; $('#leadMsg').value = '';
     LK.forEach(function (k) { $('#lf-' + k[0]).value = ''; });
     leadNote(''); paintLead();
@@ -1001,21 +1042,26 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     L[i.dataset.lk] = i.value.trim(); genLead();
   });
   $('#leadMsg').addEventListener('input', paintLead);
-  $('#leadReroll').addEventListener('click', function () { if (!L.nome && !L.contato) { leadNote('Cole um lead primeiro.'); return; } genLead(); });
+  $('#leadReroll').addEventListener('click', function () { if (!L.nome && !L.contato) { leadNote('Cole um lead primeiro.'); return; } leadAiSeq++; $('#leadAi').disabled = false; $('#leadAi').textContent = 'Reescrever com IA'; genLead(); });
   $('#leadCopy').addEventListener('click', function () {
     var o = $('#leadMsg');
     function fb() { o.focus(); o.select(); leadNote('Selecionei a mensagem. Copie com Ctrl+C.'); }
     try { navigator.clipboard.writeText(o.value).then(function () { leadNote('Mensagem copiada.'); }, fb); } catch (e) { fb(); }
   });
-  $('#leadAi').addEventListener('click', function () {
-    var o = $('#leadMsg'), btn = this;
-    if (!o.value.trim()) { leadNote('Cole um lead primeiro.'); return; }
-    btn.disabled = true; btn.textContent = 'Reescrevendo…'; leadNote('Reescrevendo com IA…');
-    aiRewrite(o.value).then(function (t) {
-      o.value = t; paintLead(); leadNote('Mensagem reescrita. Confira antes de enviar. "Gerar outra versão" volta ao texto padrão.');
-    }).catch(function (e) { leadNote(aiFail(e)); })
-      .then(function () { btn.disabled = false; btn.textContent = 'Reescrever com IA'; });
-  });
+  var leadAiSeq = 0;
+  function runLeadAi(auto) {
+    var o = $('#leadMsg'), btn = $('#leadAi'), orig = o.value, seq = ++leadAiSeq;
+    if (!orig.trim()) { if (!auto) leadNote('Cole um lead primeiro.'); return; }
+    btn.disabled = true; btn.textContent = 'Reescrevendo…';
+    leadNote(auto ? 'Mensagem padrão pronta. Reescrevendo com IA em segundo plano; você já pode ler ou editar.' : 'Reescrevendo com IA…');
+    aiRewrite(orig).then(function (t) {
+      if (seq !== leadAiSeq) return;
+      if (o.value !== orig) { leadNote('A IA terminou, mas você editou o texto nesse meio tempo, então mantive o seu. Clique em "Reescrever com IA" para tentar de novo.'); return; }
+      o.value = t; paintLead(); leadNote('Mensagem reescrita pela IA. Confira antes de enviar. "Gerar outra versão" volta ao texto padrão.');
+    }).catch(function (e) { if (seq === leadAiSeq) leadNote(aiFail(e)); })
+      .then(function () { if (seq === leadAiSeq) { btn.disabled = false; btn.textContent = 'Reescrever com IA'; } });
+  }
+  $('#leadAi').addEventListener('click', function () { runLeadAi(false); });
   $('#leadOpen').addEventListener('click', function (e) { if (this.getAttribute('aria-disabled') === 'true') e.preventDefault(); });
   $('#modes').addEventListener('click', function (e) {
     var b = e.target.closest('[data-mode]'); if (!b) return;

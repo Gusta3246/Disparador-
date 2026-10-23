@@ -55,34 +55,65 @@ function buildRewritePrompt(tone, source) {
 async function callGemini(key, prompt) {
   const model = process.env.GEMINI_MODEL || 'gemini-flash-latest';
   const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 50000);
 
-  let r;
-  try {
-    r = await fetch(url, {
+  // Modelos "thinking" ficam lentos se pensarem muito. Pedimos pouco raciocínio (thinkingLevel low).
+  // Se o modelo não aceitar esse campo (erro 400), repetimos sem ele.
+  const post = (withThinking) =>
+    fetch(url, {
       method: 'POST',
+      signal: ctl.signal,
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 1.0, maxOutputTokens: 4096 },
+        generationConfig: Object.assign(
+          { temperature: 1.0, maxOutputTokens: 4096 },
+          withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {}
+        ),
       }),
     });
+
+  let r;
+  try {
+    r = await post(true);
+    if (r.status === 400) r = await post(false);
   } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') return { status: 504, error: 'O Gemini demorou demais para responder. Tente de novo.' };
     return { status: 502, error: 'Não consegui falar com o Gemini agora. Tente de novo em instantes.' };
   }
 
-  if (r.status === 429) return { status: 429, error: 'Limite gratuito da IA atingido. Espere um pouco e tente de novo.' };
+  let detail = '';
+  if (!r.ok) {
+    try {
+      const j = await r.clone().json();
+      detail = j && j.error && j.error.message ? ' Detalhe: ' + String(j.error.message).slice(0, 200) : '';
+    } catch (e) { /* sem detalhe */ }
+  }
+
+  if (r.status === 429) { clearTimeout(timer); return { status: 429, error: 'Limite gratuito da IA atingido. Espere um pouco e tente de novo.' + detail }; }
   if (r.status === 400 || r.status === 401 || r.status === 403) {
-    return { status: 502, error: 'O Gemini recusou o pedido. Confira se a chave GEMINI_API_KEY está correta e ativa.' };
+    clearTimeout(timer);
+    return { status: 502, error: 'O Gemini recusou o pedido. Confira se a chave GEMINI_API_KEY está correta e ativa.' + detail };
   }
   if (r.status === 404) {
-    return { status: 502, error: 'Modelo do Gemini não encontrado. Defina GEMINI_MODEL na Vercel com um modelo disponível.' };
+    clearTimeout(timer);
+    return { status: 502, error: 'Modelo do Gemini não encontrado. Defina GEMINI_MODEL na Vercel com um modelo disponível.' + detail };
   }
-  if (!r.ok) return { status: 502, error: 'O Gemini respondeu com erro (' + r.status + '). Tente de novo.' };
+  if (!r.ok) { clearTimeout(timer); return { status: 502, error: 'O Gemini respondeu com erro (' + r.status + '). Tente de novo.' + detail }; }
 
-  const data = await r.json().catch(() => ({}));
+  let data = {};
+  try {
+    data = await r.json();
+  } catch (e) {
+    clearTimeout(timer);
+    return { status: 502, error: 'A resposta do Gemini veio incompleta. Tente de novo.' };
+  }
+  clearTimeout(timer);
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
-  const text = Array.isArray(parts) ? parts.map((p) => p.text || '').join('') : '';
+  const text = Array.isArray(parts) ? parts.filter((x) => !x.thought).map((x) => x.text || '').join('') : '';
   if (!text.trim()) return { status: 502, error: 'A IA não devolveu texto desta vez. Tente de novo.' };
   return { status: 200, text };
 }

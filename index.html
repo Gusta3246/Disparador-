@@ -133,6 +133,10 @@
   input[type="text"] { width: 100%; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
   #leadMsg { min-height: 220px; }
   #leadNote { min-height: 1.3em; }
+  details.fold { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  details.fold > summary { cursor: pointer; font-size: 13px; opacity: .85; }
+  details.fold[open] > summary { margin-bottom: 12px; }
+  .fold-body { display: flex; flex-direction: column; gap: 14px; }
   .aibox { display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
   .btn:disabled { opacity: 0.55; cursor: progress; }
 </style>
@@ -179,6 +183,37 @@
 
       <section class="card" aria-labelledby="h-msg">
         <div class="card-head"><span class="step">2</span><h2 id="h-msg">Mensagem</h2></div>
+        <div class="aibox">
+          <div class="label">Mais variações com IA</div>
+          <div class="row2">
+            <label class="f" for="aiN">Quantas versões novas
+              <input type="number" id="aiN" min="1" max="15" value="6">
+            </label>
+            <label class="f" for="aiTone">Tom
+              <select id="aiTone">
+                <option>Natural e amigável</option>
+                <option>Mais direto e curto</option>
+                <option>Mais formal</option>
+                <option>Mais descontraído</option>
+              </select>
+            </label>
+          </div>
+          <label class="f" for="aiSrc">Seu texto (opcional): cole uma mensagem e a IA reescreve
+            <textarea id="aiSrc" rows="4" placeholder="Ex.: Olá, tudo bem? Sou corretor e tenho apartamentos com entrada baixa. Quer saber mais?"></textarea>
+          </label>
+          <label class="f" for="aiAsk">O que ajustar (opcional)
+            <input type="text" id="aiAsk" placeholder="Ex.: deixar mais curto e mais simpático" maxlength="200">
+          </label>
+          <div class="actions">
+            <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
+            <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
+          </div>
+          <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="massAuto" checked> Reescrever automaticamente cada mensagem da fila com IA (começando pela primeira)</label>
+          <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave da IA fica guardada no servidor.</p>
+        </div>
+        <details class="fold" id="tplBox">
+          <summary>Texto da mensagem, variáveis e prévia (oculto)</summary>
+          <div class="fold-body">
         <label class="f" for="tpl">Texto da mensagem
           <textarea id="tpl" rows="16">{Olá|Oi|Opa|E aí}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.
 
@@ -341,34 +376,6 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
 {Ainda está de olho em|Continua de olho em|Segue de olho em} {um imóvel novo|um apartamento|uma casa própria}? {Por aqui|Hoje|No momento} a entrada começa em R$ 500,00. {Posso te mostrar as opções|Quer ver as opções|Quer que eu te explique}?</textarea>
         </label>
         <p class="note">Escreva opções entre chaves separadas por barra, como <code>{Olá|Oi|Opa}</code>, e uma delas é sorteada para cada contato. Para ter versões completas diferentes (agora há <b id="verCount">40</b> versões), separe-as com uma linha contendo só <code>---</code>. O nome da planilha é ajustado automaticamente para a primeira letra maiúscula e o resto minúscula. A variável <code>{saudacao}</code> vira bom dia, boa tarde ou boa noite conforme a hora.</p>
-        <div class="aibox">
-          <div class="label">Mais variações com IA</div>
-          <div class="row2">
-            <label class="f" for="aiN">Quantas versões novas
-              <input type="number" id="aiN" min="1" max="15" value="6">
-            </label>
-            <label class="f" for="aiTone">Tom
-              <select id="aiTone">
-                <option>Natural e amigável</option>
-                <option>Mais direto e curto</option>
-                <option>Mais formal</option>
-                <option>Mais descontraído</option>
-              </select>
-            </label>
-          </div>
-          <label class="f" for="aiSrc">Seu texto (opcional): cole uma mensagem e a IA reescreve
-            <textarea id="aiSrc" rows="4" placeholder="Ex.: Olá, tudo bem? Sou corretor e tenho apartamentos com entrada baixa. Quer saber mais?"></textarea>
-          </label>
-          <label class="f" for="aiAsk">O que ajustar (opcional)
-            <input type="text" id="aiAsk" placeholder="Ex.: deixar mais curto e mais simpático" maxlength="200">
-          </label>
-          <div class="actions">
-            <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
-            <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
-          </div>
-          <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="massAuto" checked> Reescrever automaticamente cada mensagem da fila com IA (começando pela primeira)</label>
-          <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave da IA fica guardada no servidor.</p>
-        </div>
         <div>
           <div class="label" style="margin-bottom:6px">Variáveis da planilha</div>
           <div class="chips" id="chips"></div>
@@ -378,10 +385,12 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
           <div class="bubble" id="preview"></div>
           <div class="actions" style="margin-top:8px"><button class="btn sm" id="reroll" type="button">Sortear outra versão</button></div>
         </div>
+          </div>
+        </details>
         <label class="f" for="dest">Abrir em
           <select id="dest">
             <option value="api">api.whatsapp.com (abre o WhatsApp Web ou o app)</option>
-            <option value="web">web.whatsapp.com (direto no WhatsApp Web)</option>
+            <option value="web" selected>web.whatsapp.com (direto no WhatsApp Web)</option>
           </select>
         </label>
       </section>
@@ -402,6 +411,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
             <label class="f" for="maxS">Máximo (segundos)<input type="number" id="maxS" min="0" max="3600" value="120"></label>
           </div>
           <label class="chk" for="beep"><input type="checkbox" id="beep" checked> Tocar um aviso quando a próxima conversa for liberada</label>
+          <label class="chk" for="autoOpen"><input type="checkbox" id="autoOpen" checked> Abrir a próxima conversa automaticamente quando a pausa terminar</label>
         </div>
         <div id="next"></div>
         <div class="tabs" id="tabs" role="group" aria-label="Filtrar lista">
@@ -752,10 +762,38 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     if (mx < mn) { var t = mn; mn = mx; mx = t; }
     var sec = Math.round(mn + Math.random() * (mx - mn));
     S.until = Date.now() + sec * 1000;
+    S.armed = true;
     if (tickId) { clearInterval(tickId); tickId = null; }
     if (sec > 0) tickId = setInterval(applyCool, 250);
     applyCool();
   }
+
+  /* Quando a pausa termina, abre sozinho a próxima conversa e marca como enviada (igual ao botão). */
+  var autoOpenT = null;
+  function autoOpenNext() {
+    clearTimeout(autoOpenT);
+    if (!$('#autoOpen').checked) return;
+    var nx = items().filter(function (x) { return x.valid && x.status === 'pendente'; })[0];
+    if (!nx || S.until - Date.now() > 0) return;
+    if (aiWaiting(nx.i)) { autoOpenT = setTimeout(autoOpenNext, 1000); return; }
+    var w = window.open(link(nx), '_blank');
+    if (!w) {
+      say('O navegador bloqueou a abertura automática. Permita pop-ups para este site (ícone na barra de endereço) e clique em "Abrir conversa e marcar como enviada".');
+      return;
+    }
+    try { w.opener = null; } catch (e) {}
+    startCool();
+    setTimeout(function () { S.status[nx.i] = 'enviado'; renderQueue(); }, 300);
+  }
+  setInterval(function () {
+    if (!S.armed || S.until - Date.now() > 0) return;
+    S.armed = false;
+    autoOpenNext();
+  }, 500);
+  $('#autoOpen').addEventListener('change', function () {
+    if (!this.checked) { S.armed = false; clearTimeout(autoOpenT); }
+    else if (S.until - Date.now() > 0) S.armed = true;
+  });
 
   /* ---------- eventos ---------- */
   $('#file').addEventListener('change', function (e) { handleFile(e.target.files[0]); e.target.value = ''; });
@@ -807,7 +845,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     }
     if (e.target.closest('[data-release]')) {
       if (tickId) { clearInterval(tickId); tickId = null; }
-      S.until = 0; applyCool(); return;
+      S.until = 0; S.armed = false; applyCool(); return;
     }
     var ai = e.target.closest('[data-ai]');
     if (ai) { aiRewriteItem(ai); return; }

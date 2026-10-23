@@ -1,5 +1,5 @@
 {
   "functions": {
-    "api/gerar.js": { "maxDuration": 30 }
+    "api/gerar.js": { "maxDuration": 60 }
   }
 }

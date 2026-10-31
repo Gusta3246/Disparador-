@@ -52,15 +52,31 @@ function buildRewritePrompt(tone, source) {
   );
 }
 
-async function callOpenRouter(key, prompt, maxTokens) {
-  const model = process.env.OPENROUTER_MODEL || 'google/gemini-2.5-flash';
-  const url = 'https://openrouter.ai/api/v1/chat/completions';
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 50000);
+// Modelo principal + reservas. Se o provedor de um modelo cair (503, 502, 504, 429, timeout),
+// tenta de novo uma vez e depois passa ao próximo modelo da lista.
+// Na Vercel: OPENROUTER_MODEL = principal (ou vários separados por vírgula);
+// OPENROUTER_FALLBACK_MODELS = reservas separadas por vírgula (opcional).
+const DEFAULT_MODEL = 'google/gemini-2.5-flash';
+const DEFAULT_FALLBACKS = 'openai/gpt-4o-mini,meta-llama/llama-3.3-70b-instruct';
+const TOTAL_BUDGET_MS = 54000; // a função da Vercel tem 60 s; sobra folga para responder
+const ATTEMPT_TIMEOUT_MS = 22000;
+const RETRY_DELAY_MS = 1200;
 
+function modelList() {
+  const split = (v) => String(v || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const all = split(process.env.OPENROUTER_MODEL || DEFAULT_MODEL).concat(split(process.env.OPENROUTER_FALLBACK_MODELS || DEFAULT_FALLBACKS));
+  return all.filter((m, i) => all.indexOf(m) === i).slice(0, 4);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Uma chamada a um modelo. Devolve { ok, text } ou { retry, next, fatal, status, error }.
+async function callModel(key, model, prompt, maxTokens, timeoutMs) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
   let r;
   try {
-    r = await fetch(url, {
+    r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       signal: ctl.signal,
       headers: {
@@ -84,35 +100,54 @@ async function callOpenRouter(key, prompt, maxTokens) {
     });
   } catch (e) {
     clearTimeout(timer);
-    if (e && e.name === 'AbortError') return { status: 504, error: 'A IA demorou demais para responder. Tente de novo.' };
-    return { status: 502, error: 'Não consegui falar com o OpenRouter agora. Tente de novo em instantes.' };
+    if (e && e.name === 'AbortError') return { retry: true, status: 504, error: 'A IA demorou demais para responder.' };
+    return { retry: true, status: 502, error: 'Não consegui falar com o OpenRouter agora.' };
   }
 
   let detail = '';
-  if (!r.ok) {
-    try {
-      const j = await r.clone().json();
-      detail = j && j.error && j.error.message ? ' Detalhe: ' + String(j.error.message).slice(0, 200) : '';
-    } catch (e) { /* sem detalhe */ }
-  }
-  clearTimeout(timer);
-
-  if (r.status === 401) return { status: 502, error: 'O OpenRouter recusou a chave. Confira se OPENROUTER_API_KEY está correta e ativa.' + detail };
-  if (r.status === 402) return { status: 502, error: 'Sem créditos no OpenRouter. Adicione saldo em openrouter.ai/credits ou use um modelo gratuito.' + detail };
-  if (r.status === 429) return { status: 429, error: 'Limite de uso da IA atingido. Espere um pouco e tente de novo.' + detail };
-  if (r.status === 400 || r.status === 404) return { status: 502, error: 'Modelo não encontrado ou pedido inválido. Confira OPENROUTER_MODEL na Vercel (formato provedor/modelo).' + detail };
-  if (!r.ok) return { status: 502, error: 'O OpenRouter respondeu com erro (' + r.status + '). Tente de novo.' + detail };
-
-  let data = {};
+  let data = null;
   try {
     data = await r.json();
-  } catch (e) {
-    return { status: 502, error: 'A resposta do OpenRouter veio incompleta. Tente de novo.' };
-  }
+    if (!r.ok && data && data.error && data.error.message) detail = ' Detalhe: ' + String(data.error.message).slice(0, 200);
+  } catch (e) { /* corpo vazio ou incompleto */ }
+  clearTimeout(timer);
+
+  // Problemas da conta valem para qualquer modelo: não adianta tentar outro.
+  if (r.status === 401) return { fatal: true, status: 502, error: 'O OpenRouter recusou a chave. Confira se OPENROUTER_API_KEY está correta e ativa.' + detail };
+  if (r.status === 402) return { fatal: true, status: 502, error: 'Sem créditos no OpenRouter. Adicione saldo em openrouter.ai/credits ou use um modelo gratuito.' + detail };
+  // Modelo inexistente ou pedido recusado por esse modelo: passa ao próximo da lista.
+  if (r.status === 400 || r.status === 404) return { next: true, status: 502, error: 'Modelo "' + model + '" não encontrado ou pedido inválido. Confira OPENROUTER_MODEL na Vercel (formato provedor/modelo).' + detail };
+  // Instabilidade passageira do provedor: tenta de novo e depois troca de modelo.
+  if (r.status === 429) return { retry: true, status: 429, error: 'Limite de uso da IA atingido. Espere um pouco e tente de novo.' + detail };
+  if (r.status >= 500) return { retry: true, status: 502, error: 'O provedor da IA está fora do ar ou sobrecarregado agora (erro ' + r.status + ').' + detail };
+  if (!r.ok) return { next: true, status: 502, error: 'O OpenRouter respondeu com erro (' + r.status + ').' + detail };
+
   const msg = data && data.choices && data.choices[0] && data.choices[0].message;
   const text = msg && typeof msg.content === 'string' ? msg.content : '';
-  if (!text.trim()) return { status: 502, error: 'A IA não devolveu texto desta vez. Tente de novo.' };
-  return { status: 200, text };
+  // Resposta vazia costuma ser falha do modelo naquele momento: vale tentar de novo.
+  if (!text.trim()) return { retry: true, status: 502, error: 'A IA não devolveu texto desta vez.' };
+  return { ok: true, text };
+}
+
+async function callOpenRouter(key, prompt, maxTokens) {
+  const models = modelList();
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  let last = { status: 502, error: 'A IA não respondeu agora. Tente de novo em instantes.' };
+
+  for (const model of models) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const left = deadline - Date.now();
+      if (left < 3000) return last;
+      const out = await callModel(key, model, prompt, maxTokens, Math.min(ATTEMPT_TIMEOUT_MS, left));
+      if (out.ok) return { status: 200, text: out.text };
+      last = out;
+      if (out.fatal) return out;
+      if (out.next) break;
+      if (attempt === 1 && deadline - Date.now() > RETRY_DELAY_MS + 3000) await sleep(RETRY_DELAY_MS);
+      else break;
+    }
+  }
+  return last;
 }
 
 module.exports = async (req, res) => {

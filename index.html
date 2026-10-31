@@ -184,6 +184,10 @@
       <section class="card" aria-labelledby="h-msg">
         <div class="card-head"><span class="step">2</span><h2 id="h-msg">Mensagem</h2></div>
         <div class="aibox">
+          <label class="note" style="display:flex;gap:8px;align-items:flex-start"><input type="checkbox" id="genLocal" checked style="margin-top:4px"> <span><b>Montar cada mensagem sozinho (sem IA)</b><br>Cada contato recebe uma mensagem nova, combinando abertura, apresentação, pergunta, oferta e fechamento. Não repete e não gasta crédito.</span></label>
+          <p class="note" id="genCount"></p>
+        </div>
+        <div class="aibox">
           <div class="label">Mais variações com IA</div>
           <div class="row2">
             <label class="f" for="aiN">Quantas versões novas
@@ -208,7 +212,7 @@
             <button class="btn primary" id="aiGen" type="button">Gerar com IA</button>
             <button class="btn" id="aiUndo" type="button" hidden>Desfazer última geração</button>
           </div>
-          <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="massAuto" checked> Reescrever automaticamente cada mensagem da fila com IA (começando pela primeira)</label>
+          <label class="note" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="massAuto"> Reescrever automaticamente cada mensagem da fila com IA (começando pela primeira)</label>
           <p class="note" id="aiNote" role="status" aria-live="polite">Com um texto colado acima, a IA reescreve esse texto. Sem ele, cria a partir das versões que você já tem. O resultado entra no fim do texto da mensagem. Só o texto-modelo vai para a IA; nomes e telefones da planilha ficam no seu navegador. A chave da IA fica guardada no servidor.</p>
         </div>
         <details class="fold" id="tplBox">
@@ -465,7 +469,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
             <button class="btn" id="leadCopy" type="button">Copiar mensagem</button>
             <button class="btn" id="leadReroll" type="button">Gerar outra versão</button>
           </div>
-          <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="leadAuto" checked> Reescrever com IA automaticamente ao ler o lead</label>
+          <label class="note" style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="leadAuto"> Reescrever com IA automaticamente ao ler o lead</label>
         </section>
       </div>
     </div>
@@ -499,7 +503,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
   });
   paintTheme();
 
-  var S = { headers: [], rows: [], phoneCol: 0, nameCol: -1, status: [], filter: 'todos', example: true, msgs: {}, aiState: {}, until: 0 };
+  var S = { headers: [], rows: [], phoneCol: 0, nameCol: -1, status: [], filter: 'todos', example: true, msgs: {}, used: {}, aiState: {}, until: 0 };
 
   function norm(h) {
     return String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -543,7 +547,114 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     });
     return v;
   }
+  /* ---------- gerador local (sem IA): monta a mensagem combinando blocos ---------- */
+  var G = {
+    open: [
+      '{Olá|Oi|Opa|E aí}, {primeiro_nome}! {saudacao}.',
+      '{saudacao}, {primeiro_nome}! {Tudo bem|Tudo certo|Como vai}?',
+      '{Oi|Olá}, {primeiro_nome}, {saudacao}!',
+      '{primeiro_nome}, {saudacao}! {Tudo bem|Tudo certo}?',
+      '{saudacao}, {primeiro_nome}.',
+      '{Olá|Oi}, {primeiro_nome}. {Tudo bem|Tudo certo|Como você está}?',
+      '{Oi|Olá|Opa}, {primeiro_nome}! {saudacao}, {tudo bem|tudo certo}?',
+      '{saudacao}! {primeiro_nome}, {tudo bem|tudo certo}?',
+      '{Opa|Oi|Olá}, {primeiro_nome}. {saudacao}!',
+      '{Oi|Olá}, {primeiro_nome}!',
+      '{saudacao}, {primeiro_nome}! {Espero que esteja bem|Espero que esteja tudo bem}.',
+      'E aí, {primeiro_nome}, {saudacao}!'
+    ],
+    intro: [
+      'Aqui é o Luis, {corretor da MRV|corretor de imóveis da MRV|corretor MRV}.',
+      'Sou o Luis, {corretor da MRV|da MRV}.',
+      'Meu nome é Luis, {sou corretor da MRV|trabalho como corretor na MRV}.',
+      'Luis aqui, {corretor da MRV|da MRV}.',
+      'Aqui quem fala é o Luis, da MRV.',
+      'Me chamo Luis e sou corretor da MRV.',
+      'Sou o Luis, {corretor|corretor de imóveis} da MRV.',
+      'Aqui é o Luis, da equipe MRV.'
+    ],
+    hook: [
+      '{Você ainda tem interesse|Ainda tem interesse|Seu interesse continua|Você continua com interesse} em {adquirir|comprar|conquistar} {seu imóvel|um imóvel|seu apartamento}?',
+      '{Você ainda está|Ainda está|Continua} {procurando|buscando|em busca de} {um imóvel|um apartamento|um lugar pra chamar de seu}?',
+      '{Você ainda quer|Ainda quer|Continua querendo} {sair do aluguel|ter sua casa própria|realizar o sonho da casa própria}?',
+      '{Você chegou a pedir informações|Você demonstrou interesse|Você falou com a gente} sobre um imóvel {há um tempo|algum tempo atrás|recentemente}. {Ainda faz sentido pra você|Esse interesse continua|Ainda é do seu interesse}?',
+      '{Passando para saber|Estou entrando em contato para saber|Queria saber|Só queria confirmar} se {você ainda busca|ainda faz sentido pra você|você ainda pensa em} {um imóvel|comprar um imóvel|sair do aluguel}.',
+      '{Uma pergunta rápida|Pergunta rápida|Só uma pergunta}: {você ainda tem interesse|ainda faz sentido pra você|você segue com interesse} em {um imóvel novo|conhecer os imóveis|um apartamento novo}?',
+      '{O plano de comprar seu imóvel|A ideia de ter seu imóvel|Seu plano de sair do aluguel|Sua busca por um imóvel} {ainda está de pé|continua|segue em andamento}?',
+      '{Lembrei de você|Pensei em você|Me lembrei do seu contato} e quis {saber|perguntar} se {você já encontrou o imóvel ideal|já resolveu a questão do imóvel|ainda procura imóvel}.',
+      '{Você já pensou|Já pensou|Já parou pra pensar} em {sair do aluguel|ter seu próprio imóvel|ter a casa própria}?',
+      '{Faz um tempinho que conversamos, então|Já faz um tempo que falamos, então|Fiquei sem notícias suas, então} queria saber como {anda|está} {a busca pelo seu imóvel|seu plano de ter casa própria}.',
+      '{Está nos seus planos|Ainda está nos seus planos|Continua nos seus planos} {comprar um imóvel|sair do aluguel|ter a casa própria}?'
+    ],
+    offer: [
+      'Hoje {temos|tenho|estamos com} {opções|condições|unidades|oportunidades} com entrada a partir de R$ 500,00.',
+      'A entrada {começa|parte|inicia} em R$ 500,00.',
+      'Tem {condição|opção|oportunidade} {boa|especial|interessante} com entrada {a partir de|desde} R$ 500,00.',
+      'E o melhor: a entrada {pode ser|começa} a partir de R$ 500,00.',
+      '{Com|Hoje com} entrada a partir de R$ 500,00 {dá pra começar|fica mais fácil começar|o primeiro passo cabe no bolso}.',
+      '{Ainda temos|Ainda há|Existem} {unidades|apartamentos|opções} com entrada a partir de R$ 500,00.',
+      '{Muita gente acha|Tem gente que pensa} que a entrada é alta, mas {aqui|na MRV|com a gente} ela {começa|pode começar} em R$ 500,00.',
+      '{Consigo|Posso} te {passar|mostrar} {condições|opções} com entrada a partir de R$ 500,00.',
+      '{Estamos|Estou} com {condições|opções} {atualizadas|novas} de imóvel, com entrada a partir de R$ 500,00.',
+      'Dá pra {começar|dar o primeiro passo} com entrada a partir de R$ 500,00.'
+    ],
+    cta: [
+      '{Posso te explicar como funciona|Quer que eu te explique como funciona|Posso te passar os detalhes|Quer saber mais}?',
+      '{Posso fazer uma simulação|Posso simular seu financiamento|Faço uma simulação rápida} {sem compromisso|pra você|rapidinho}?',
+      '{Quer ver|Posso te mostrar|Posso te enviar} {as opções|os imóveis disponíveis|as condições}?',
+      '{Me conta|Me diz|Me fala}: {ainda faz sentido pra você|você tem interesse|quer conhecer}?',
+      '{Se quiser|Se fizer sentido|Se tiver interesse}, {te explico tudo por aqui|te passo os detalhes agora|faço uma simulação pra você}.',
+      '{Você tem um minutinho|Você tem um tempinho|Podemos conversar rapidinho}?',
+      'Posso {te ajudar agora|te chamar por aqui mesmo}?'
+    ],
+    shapes: [
+      ['open+intro', 'hook+offer'],
+      ['open', 'intro+hook', 'offer'],
+      ['open+intro', 'offer+cta'],
+      ['open', 'hook', 'intro+offer'],
+      ['open+intro', 'offer+hook']
+    ]
+  };
+  function pickOne(a) { return a[Math.floor(Math.random() * a.length)]; }
+  function composeRaw() {
+    return pickOne(G.shapes).map(function (par) {
+      return par.split('+').map(function (k) { return pickOne(G[k]); }).join(' ');
+    }).join('\n\n');
+  }
+  function spinCount(str) {
+    var n = 1; (str.match(/\{[^{}]*\|[^{}]*\}/g) || []).forEach(function (g) { n *= g.slice(1, -1).split('|').length; });
+    return n;
+  }
+  function comboCount() {
+    var part = {};
+    ['open', 'intro', 'hook', 'offer', 'cta'].forEach(function (k) { part[k] = G[k].reduce(function (a, x) { return a + spinCount(x); }, 0); });
+    return G.shapes.reduce(function (tot, sh) {
+      return tot + sh.reduce(function (a, par) { return a * par.split('+').reduce(function (b, k) { return b * part[k]; }, 1); }, 1);
+    }, 0);
+  }
+  function genOn() { var b = $('#genLocal'); return !!(b && b.checked); }
+  function fillVars(t, v) {
+    t = t.replace(/\{([^{}|]+)\}/g, function (m, k) { var key = norm(k); return key in v ? v[key] : m; });
+    return t.replace(/\{([^{}]*\|[^{}]*)\}/g, function (m, k) { var o = k.split('|'); return o[Math.floor(Math.random() * o.length)].trim(); });
+  }
+  function composeFor(v) {
+    var out = '';
+    for (var i = 0; i < 40; i++) {
+      out = fillVars(composeRaw(), v).replace(/(, )(Bom dia|Boa tarde|Boa noite)/g, function (m, c, w) { return c + w.toLowerCase(); });
+      if (!S.used[out]) break;
+    }
+    S.used[out] = 1;
+    return out;
+  }
+  function paintGenCount() {
+    var n = comboCount();
+    $('#genCount').textContent = genOn()
+      ? 'Cerca de ' + n.toLocaleString('pt-BR') + ' combinações possíveis. Na prática, nunca se repetem.'
+      : 'Desligado: as mensagens vêm do texto abaixo (versões separadas por ---).';
+  }
+
   function build(it) {
+    if (genOn()) return composeFor(vars(it));
     var variants = $('#tpl').value.split(/^[ \t]*---[ \t]*$/m).map(function (s) { return s.trim(); }).filter(Boolean);
     if (!variants.length) return '';
     var t = variants[Math.floor(Math.random() * variants.length)];
@@ -628,7 +739,7 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
       });
     }
     S.headers = headers; S.rows = rows; S.phoneCol = best; S.nameCol = nameCol;
-    S.status = []; S.example = false; S.filter = 'todos'; S.msgs = {}; S.aiState = {}; S.until = 0;
+    S.status = []; S.example = false; S.filter = 'todos'; S.msgs = {}; S.used = {}; S.aiState = {}; S.until = 0;
     renderAll();
     say('Planilha carregada: ' + rows.length + ' linhas.');
   }
@@ -1040,6 +1151,14 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
     }).then(function () { btn.disabled = false; btn.textContent = 'Gerar com IA'; });
   });
   $('#massAuto').addEventListener('change', scheduleAutoAi);
+  try { var gl = localStorage.getItem('disparador-genlocal'); if (gl === '0') $('#genLocal').checked = false; } catch (e) {}
+  $('#genLocal').addEventListener('change', function () {
+    try { localStorage.setItem('disparador-genlocal', this.checked ? '1' : '0'); } catch (e) {}
+    S.msgs = {}; S.used = {}; S.aiState = {};
+    paintGenCount(); renderPreview(); renderQueue();
+    if (!$('#viewLead').hidden && (L.nome || L.contato)) genLead();
+  });
+  paintGenCount();
   $('#aiUndo').addEventListener('click', function () {
     if (aiBackup == null) return;
     $('#tpl').value = aiBackup; aiBackup = null; this.hidden = true;
@@ -1099,10 +1218,10 @@ Estou falando sobre imóveis com entrada a partir de R$ 500,00. Você {prefere|g
   }
   function genLead() {
     var vs = $('#tpl').value.split(/^[ \t]*---[ \t]*$/m).map(function (x) { return x.trim(); }).filter(Boolean);
-    var base = vs.length ? vs[Math.floor(Math.random() * vs.length)] : '{Olá|Oi}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.\n\nVocê ainda tem interesse em adquirir seu imóvel?';
+    var base = genOn() ? composeRaw() : vs.length ? vs[Math.floor(Math.random() * vs.length)] : '{Olá|Oi}, {primeiro_nome}. {saudacao}! Sou o Luis, corretor da MRV.\n\nVocê ainda tem interesse em adquirir seu imóvel?';
     var nm = properName(L.nome), hr = new Date().getHours();
     var v = { nome: nm, primeiro_nome: nm.split(/\s+/)[0] || '', saudacao: hr < 12 ? 'Bom dia' : (hr < 18 ? 'Boa tarde' : 'Boa noite'), empreendimento: L.emp || '', cidade: L.cidade || '', bairro: L.bairro || '' };
-    base = base.replace(/\{([^{}|]+)\}/g, function (m, k) { var key = norm(k); return key in v ? v[key] : m; });
+    base = base.replace(/\{([^{}|]+)\}/g, function (m, k) { var key = norm(k); return key in v ? v[key] : m; }).replace(/(, )(Bom dia|Boa tarde|Boa noite)/g, function (m, c, w) { return c + w.toLowerCase(); });
     var paras = base.split(/\n\s*\n/), prof = leadProfile();
     if (prof) paras.splice(Math.min(1, paras.length), 0, prof);
     $('#leadMsg').value = spin(paras.join('\n\n'));

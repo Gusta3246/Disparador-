@@ -30,6 +30,7 @@ package.json     versão do Node
    |---|---|
    | `OPENROUTER_API_KEY` | a chave criada em openrouter.ai/keys |
    | `OPENROUTER_MODEL` (opcional) | modelo no formato `provedor/modelo` (padrão `google/gemini-2.5-flash`) |
+   | `OPENROUTER_FALLBACK_MODELS` (opcional) | modelos de reserva separados por vírgula (padrão `openai/gpt-4o-mini,meta-llama/llama-3.3-70b-instruct`) |
    | `ACCESS_CODE` | uma senha que você inventar (impede que outras pessoas usem sua cota) |
 
 4. Clique em **Deploy**.
@@ -45,6 +46,7 @@ Abra o endereço que a Vercel gerou, vá em **Mais variações com IA**, digite 
 - **"O OpenRouter recusou a chave"**: a chave está errada ou foi desativada. Gere outra em openrouter.ai/keys.
 - **"Modelo não encontrado"**: cadastre `OPENROUTER_MODEL` na Vercel com um ID válido de openrouter.ai/models.
 - **"Sem créditos no OpenRouter"**: adicione saldo em openrouter.ai/credits ou escolha um modelo gratuito (ID terminado em `:free`).
+- **"O provedor da IA está fora do ar" (erro 503)**: o servidor já tenta de novo e troca para os modelos de reserva sozinho. Se ainda assim aparecer, todos os provedores estavam fora; espere alguns minutos.
 - **"Limite de uso da IA atingido"**: espere alguns minutos.
 
 ## Segurança

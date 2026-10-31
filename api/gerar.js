@@ -33,7 +33,7 @@ function buildVariationsPrompt(n, tone, examples, source, ask) {
     'Crie ' + n + ' versões NOVAS e bem diferentes entre si da mensagem de abordagem de WhatsApp abaixo. Tom: ' + tone + '.\n' +
     (ask ? 'Pedido extra do corretor: ' + ask + '\n' : '') +
     '\nRegras:\n' +
-    '- Mantenha o sentido, o nome Luis, "corretor da MRV" e a entrada a partir de R$ 500,00.\n' +
+    '- Mantenha o sentido, o nome Luis, a apresentação como corretor de imóveis e a entrada a partir de R$ 500,00. Não cite nome de construtora nem de empresa.\n' +
     format +
     'Exemplos do estilo desejado:\n\n' + examples.join('\n---\n')
   );
@@ -44,7 +44,7 @@ function buildRewritePrompt(tone, source) {
   return (
     'Reescreva a mensagem de WhatsApp abaixo com outras palavras e outra estrutura de frase, mantendo o mesmo sentido. Tom: ' + tone + '.\n\n' +
     'Regras:\n' +
-    '- Mantenha exatamente como estão: nomes, datas, horários, valores, nome do empreendimento e a apresentação do Luis, corretor da MRV.\n' +
+    '- Mantenha exatamente como estão: nomes, datas, horários, valores, nome do empreendimento e a apresentação do Luis, corretor de imóveis. Não cite nome de construtora nem de empresa.\n' +
     '- Não invente informações nem promessas.\n' +
     '- Tamanho parecido com o original. No máximo 1 emoji.\n' +
     '- Responda SOMENTE com a mensagem reescrita, sem aspas e sem explicações.\n\n' +
@@ -57,7 +57,7 @@ function buildRewritePrompt(tone, source) {
 // Na Vercel: OPENROUTER_MODEL = principal (ou vários separados por vírgula);
 // OPENROUTER_FALLBACK_MODELS = reservas separadas por vírgula (opcional).
 const DEFAULT_MODEL = 'google/gemini-2.5-flash';
-const DEFAULT_FALLBACKS = 'openai/gpt-4o-mini,meta-llama/llama-3.3-70b-instruct';
+const DEFAULT_FALLBACKS = 'openai/gpt-4o-mini,meta-llama/llama-3.3-70b-instruct:free';
 const TOTAL_BUDGET_MS = 54000; // a função da Vercel tem 60 s; sobra folga para responder
 const ATTEMPT_TIMEOUT_MS = 22000;
 const RETRY_DELAY_MS = 1200;
@@ -114,7 +114,7 @@ async function callModel(key, model, prompt, maxTokens, timeoutMs) {
 
   // Problemas da conta valem para qualquer modelo: não adianta tentar outro.
   if (r.status === 401) return { fatal: true, status: 502, error: 'O OpenRouter recusou a chave. Confira se OPENROUTER_API_KEY está correta e ativa.' + detail };
-  if (r.status === 402) return { fatal: true, status: 502, error: 'Sem créditos no OpenRouter. Adicione saldo em openrouter.ai/credits ou use um modelo gratuito.' + detail };
+  if (r.status === 402) return { noCredit: true, status: 502, error: 'Sem créditos no OpenRouter. Adicione saldo em openrouter.ai/credits ou use um modelo gratuito.' + detail };
   // Modelo inexistente ou pedido recusado por esse modelo: passa ao próximo da lista.
   if (r.status === 400 || r.status === 404) return { next: true, status: 502, error: 'Modelo "' + model + '" não encontrado ou pedido inválido. Confira OPENROUTER_MODEL na Vercel (formato provedor/modelo).' + detail };
   // Instabilidade passageira do provedor: tenta de novo e depois troca de modelo.
@@ -133,13 +133,16 @@ async function callOpenRouter(key, prompt, maxTokens) {
   const models = modelList();
   const deadline = Date.now() + TOTAL_BUDGET_MS;
   let last = { status: 502, error: 'A IA não respondeu agora. Tente de novo em instantes.' };
+  let noCredit = false; // sem saldo: só os modelos gratuitos (":free") ainda podem funcionar
 
   for (const model of models) {
+    if (noCredit && !/:free$/.test(model)) continue;
     for (let attempt = 1; attempt <= 2; attempt++) {
       const left = deadline - Date.now();
       if (left < 3000) return last;
       const out = await callModel(key, model, prompt, maxTokens, Math.min(ATTEMPT_TIMEOUT_MS, left));
       if (out.ok) return { status: 200, text: out.text };
+      if (out.noCredit) { noCredit = true; if (!last.noCredit) last = out; break; }
       last = out;
       if (out.fatal) return out;
       if (out.next) break;
@@ -169,7 +172,7 @@ module.exports = async (req, res) => {
 
   let prompt, maxTokens;
   if (body.mode === 'rewrite') {
-    maxTokens = 1200;
+    maxTokens = 500; // uma mensagem de WhatsApp cabe folgada; pedir menos evita erro de saldo baixo
     if (!source) return res.status(400).json({ error: 'Não há mensagem para reescrever.' });
     prompt = buildRewritePrompt(tone, source);
   } else {
